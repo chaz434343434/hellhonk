@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HELLHONK</title>
+<meta name="description" content="HELLHONK - an original goose-themed retro FPS. Six levels, a boss, and 2-player online co-op.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #160707; --panel: #241010; --ink: #f4e6cf; --muted: #c9a98a;
+    --fire1: #ffd23f; --fire2: #ff6a1a; --blood: #b3201c; --pond: #6fe39a; --edge: #4a2418;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body { font-family: "VT323", monospace; font-size: 22px; line-height: 1.35; }
+  a { color: var(--pond); }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 16px; }
+  header {
+    background: radial-gradient(ellipse at 50% 120%, #ff6a1a55, transparent 60%),
+                linear-gradient(#3a0b0b, var(--bg));
+    padding: 56px 0 40px; text-align: center; border-bottom: 4px solid var(--edge);
+  }
+  h1 {
+    font-family: "Press Start 2P", monospace; font-size: clamp(34px, 9vw, 84px); margin: 0;
+    background: linear-gradient(var(--fire1), var(--fire2) 70%, var(--blood));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(5px 5px 0 #2a0000);
+    letter-spacing: 2px;
+  }
+  .tag { font-family: "Press Start 2P", monospace; font-size: 13px; color: var(--muted); margin: 18px 0 30px; }
+  .btn {
+    display: inline-block; font-family: "Press Start 2P", monospace; font-size: 15px; text-decoration: none;
+    color: #1a0500; background: linear-gradient(var(--fire1), var(--fire2)); padding: 16px 26px;
+    border: 3px solid #2a0000; box-shadow: 5px 5px 0 #2a0000; margin: 6px;
+  }
+  .btn:hover { transform: translate(-1px, -1px); box-shadow: 6px 6px 0 #2a0000; }
+  .btn.alt { background: linear-gradient(#9ff0bd, var(--pond)); }
+  .small { font-size: 18px; color: var(--muted); margin-top: 14px; }
+  section { padding: 34px 0; border-bottom: 2px dashed var(--edge); }
+  h2 { font-family: "Press Start 2P", monospace; font-size: 18px; color: var(--fire1); margin: 0 0 18px; }
+  .hero-shot { width: 100%; max-width: 720px; display: block; margin: 0 auto; border: 4px solid var(--edge);
+    image-rendering: pixelated; box-shadow: 0 0 40px #ff6a1a33; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .grid img { width: 100%; border: 3px solid var(--edge); image-rendering: pixelated; display: block; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 2px solid var(--edge); padding: 12px 14px; }
+  .card b { color: var(--fire1); }
+  table { border-collapse: collapse; width: 100%; }
+  td { padding: 4px 8px; border-bottom: 1px solid var(--edge); vertical-align: top; }
+  td:first-child { color: var(--fire1); white-space: nowrap; }
+  ol li { margin-bottom: 6px; }
+  code { background: #000; color: var(--pond); padding: 1px 6px; }
+  .note { background: #2b1a08; border-left: 4px solid var(--fire1); padding: 10px 14px; }
+  footer { text-align: center; padding: 26px 0 40px; color: var(--muted); font-size: 18px; }
+  @media (max-width: 520px) { body { font-size: 20px; } .btn { font-size: 12px; padding: 13px 16px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>HELLHONK</h1>
+    <div class="tag">EPISODE 1: FOWL WATERS</div>
+    <a class="btn" href="https://github.com/chaz434343434/hellhonk/releases/latest/download/HellHonk.exe">DOWNLOAD FOR WINDOWS</a>
+    <a class="btn alt" href="https://github.com/chaz434343434/hellhonk/releases">ALL VERSIONS</a>
+    <div class="small">One file, about 30 MB, no install and no Python needed. The game keeps itself up to date.</div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section>
+    <img class="hero-shot" src="img/lvl5_start.png" alt="The Nesting Grounds: a lava field under a burning sky">
+    <p>Hell has flooded the park pond. You are one very angry goose with a brass horn, an egg cannon and no plan to forgive anyone.
+       HELLHONK is a fast 90s-style shooter: keycards, secret walls, exploding barrels, a face in the status bar that gets roughed up as you take damage,
+       and a honk-metal soundtrack.</p>
+  </section>
+
+  <section>
+    <h2>SCREENSHOTS</h2>
+    <div class="grid">
+      <img src="img/00_title.png" alt="Title screen">
+      <img src="img/lvl1_start.png" alt="Gatehouse Grounds gazebo">
+      <img src="img/lvl4_start.png" alt="Frozen Fountain at night">
+      <img src="img/coop_client_kill.png" alt="Co-op: taking down a quackling in the hedge path">
+      <img src="img/boss_fight.png" alt="After the Honkmother fight">
+      <img src="img/victory.png" alt="Victory screen">
+    </div>
+  </section>
+
+  <section>
+    <h2>WHAT'S INSIDE</h2>
+    <div class="cards">
+      <div class="card"><b>6 levels</b><br>Gatehouse Grounds, the Duck Sewers, the Bread Factory, Frozen Fountain, the Nesting Grounds, and the Honkmother's throne.</div>
+      <div class="card"><b>8 enemies</b><br>Quacklings, Mallard Gunners, Fire Swans, Pelican Bombers, Hell Goslings, Heron Wraiths, Gander Brutes, and the Honkmother herself.</div>
+      <div class="card"><b>6 weapons</b><br>Peck, Honker, Egg-Gun, Feather Flinger, Baguette Bazooka, and the MEGAHONK.</div>
+      <div class="card"><b>Powerups</b><br>Rage Bread, the Golden Egg, rubber boots and a park map, plus teleporters and secrets in every level.</div>
+      <div class="card"><b>2-player co-op</b><br>Host or join over the network. Keys are shared, you can respawn while your partner fights on, and the boss gets tougher.</div>
+      <div class="card"><b>Auto-updates</b><br>New versions download in the background and install on the title screen.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>HOW TO PLAY</h2>
+    <ol>
+      <li>Download <code>HellHonk.exe</code> and put it in its own folder.</li>
+      <li>Run it. Windows may show <i>"Windows protected your PC"</i> because the exe isn't code-signed. Click <b>More info &rarr; Run anyway</b>.</li>
+      <li>Pick <b>START</b> on the title screen. Finished levels unlock in the level picker.</li>
+    </ol>
+    <table>
+      <tr><td>WASD</td><td>move (hold Shift to walk)</td></tr>
+      <tr><td>Mouse / arrows</td><td>turn</td></tr>
+      <tr><td>Click / Ctrl</td><td>fire</td></tr>
+      <tr><td>E / Space / right-click</td><td>open doors, flip switches</td></tr>
+      <tr><td>1-6 / wheel</td><td>switch weapons</td></tr>
+      <tr><td>Tab</td><td>automap</td></tr>
+      <tr><td>M / Esc</td><td>music / menu</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>CO-OP WITH A FRIEND</h2>
+    <ol>
+      <li>Both of you download the same version. The auto-updater keeps you matched.</li>
+      <li>The host picks a level, then <b>CO-OP: HOST GAME</b>. The screen shows the host's IP address. Allow it through Windows Firewall if asked.</li>
+      <li>The friend picks <b>CO-OP: JOIN GAME</b>, types that IP and presses Enter.</li>
+    </ol>
+    <p class="note">On the same Wi-Fi it just works. Across the internet, both install a free VPN like
+      <a href="https://tailscale.com/">Tailscale</a>, Radmin VPN or ZeroTier and use the IP it gives the host.
+      The other option is forwarding TCP port <code>29331</code> on the host's router.</p>
+  </section>
+</main>
+
+<footer>
+  HELLHONK is an original fan-made game. All art, sound and music are generated by its own code.<br>
+  <a href="https://github.com/chaz434343434/hellhonk">Source on GitHub</a>
+</footer>
+</body>
+</html>
