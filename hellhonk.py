@@ -17,7 +17,7 @@ from collections import deque
 import numpy as np
 import pygame
 
-from assets import Assets
+from assets import VEST_COLORS, Assets
 from audio import SR, build_sfx, song_samples, to_sound
 from level import Level, MH, MW, NUM_LEVELS
 from updater import Updater, cleanup_old
@@ -1732,13 +1732,23 @@ class Game:
             return False
         self.listener = ls
         self.joiners = []
-        self.mode = "host_wait"
+        self.role = "host"
+        self.me = self.cur = Player(0)
+        self.players = [self.me]
+        self.level = None
+        self.mode = "host_wait"          # the lobby
+        self.lobby_sent = 0.0
         self.host_ips = local_ips()
         return True
 
+    def lobby_start(self):
+        """Host pressed START in the lobby: everyone drops into the chosen level."""
+        self.new_game(self.pick_level)
+        if len(self.players) > 1:
+            self.msg_all("Co-op started! Shared keys, separate ammo. Don't peck each other.")
+
     def host_accept_tick(self):
-        """Accept joiners (lobby or mid-game). Returns True when this call started the game."""
-        started = False
+        """Accept joiners into the lobby, or straight into a match already running."""
         if self.listener:
             try:
                 while True:
@@ -1774,11 +1784,8 @@ class Game:
             p.net = net
             self.players.append(p)
             net.send({"t": "welcome", "skill": self.skill, "pid": p.pid})
-            if self.role != "host":
-                self.role = "host"
-                self.new_game(self.pick_level)
-                self.msg_all("Co-op started! Shared keys, separate ammo. Don't peck each other.")
-                started = True
+            if self.mode == "host_wait":
+                self.play_sfx("key", None, None, 1.0)      # someone arrived in the lobby
             else:
                 # late join: drop them in at the level start with a fresh loadout for this level
                 p.carry = self.default_loadout(self.level_idx)
@@ -1788,7 +1795,6 @@ class Game:
                 self.effects.append(Effect("telefog", p.px, p.py, 0.0, 3, 0.5))
                 self.msg_all("Player %d joined the flock!" % (p.pid + 1))
                 self.sound("teleport", p.px, p.py)
-        return started
 
     def host_net_tick(self):
         if self.role != "host":
@@ -1812,8 +1818,17 @@ class Game:
                 if self.mode in ("play", "intermission", "victory"):
                     self.msg_all("Player %d left the pond." % (p.pid + 1))
                 continue
-            if self.level is not None:
+            if self.mode == "host_wait":
+                if time.time() - self.lobby_sent > 0.25:
+                    p.net.send(self.lobby_info(), droppable=True)
+            elif self.level is not None:
                 p.net.send(self.build_snapshot(p), droppable=True)
+        if self.mode == "host_wait" and time.time() - self.lobby_sent > 0.25:
+            self.lobby_sent = time.time()
+
+    def lobby_info(self):
+        return {"t": "lobby", "players": sorted(p.pid for p in self.players),
+                "level": LEVEL_NAMES[self.pick_level], "skill": SKILLS[self.skill]}
 
     def build_snapshot(self, p):
         L = self.level
@@ -1890,6 +1905,11 @@ class Game:
                 self.net.alive = False
             elif t == "welcome":
                 self.skill = m.get("skill", 1)
+                self.me.pid = m.get("pid", 1)
+            elif t == "lobby":
+                self.lobby = m
+                if self.mode == "joining":
+                    self.mode = "client_lobby"
             elif t == "snap":
                 self.apply_snapshot(m)
         if not self.net.alive or (self.mode == "joining" and time.time() - self.join_t > 8):
@@ -1949,7 +1969,7 @@ class Game:
                 self.pick_level = self.unlocked - 1
                 self.save["unlocked"] = self.unlocked
                 write_save(self.save)
-        if self.mode == "play" and prev in ("intermission", "victory", "joining"):
+        if self.mode == "play" and prev in ("intermission", "victory", "joining", "client_lobby"):
             self.grab(True)
         for name, x, y, vol in s["snd"]:
             self.play_sfx(name, x, y, vol)
@@ -2214,6 +2234,10 @@ class Game:
         surf.blit(font.render(t, False, (0, 0, 0)), (x + 1, y + 1))
         surf.blit(font.render(t, False, c), (x, y))
 
+    def text_c_at(self, surf, t, cx, y, c, font=None):
+        font = font or self.font_small
+        self.text(surf, t, cx - font.size(t)[0] // 2, y, c, font)
+
     def text_c(self, surf, t, y, c, font=None):
         font = font or self.font
         self.text(surf, t, surf.get_width() // 2 - font.size(t)[0] // 2, y, c, font)
@@ -2262,17 +2286,48 @@ class Game:
         s = self.screen
         s.blit(self.title_bg, (0, 0))
         o = pygame.Surface((SW, SH), pygame.SRCALPHA)
-        o.fill((0, 0, 0, 170))
+        o.fill((0, 0, 0, 215))
         s.blit(o, (0, 0))
-        if self.mode == "host_wait":
-            self.text_c(s, "HOSTING CO-OP", 60, (255, 210, 120), self.font_mid)
-            self.text_c(s, "Tell your partner to JOIN one of these addresses:", 82, (240, 225, 200))
-            for i, ip in enumerate(self.host_ips[:4]):
-                self.text_c(s, "%s" % ip, 96 + i * 13, (140, 255, 170), self.font_mid)
-            self.text_c(s, "port %d   -   level: %s" % (PORT, LEVEL_NAMES[self.pick_level]), 152, (200, 180, 160))
-            self.text_c(s, "Waiting for a player" + "." * (int(self.t * 2) % 4) + "   (ESC to cancel)", 166, (255, 230, 170))
-            self.text_c(s, "Up to %d geese. Others can join after it starts." % MAX_PLAYERS, 180, (200, 180, 160),
-                        self.font_small)
+        if self.mode in ("host_wait", "client_lobby"):
+            host = self.mode == "host_wait"
+            info = self.lobby_info() if host else getattr(self, "lobby", {"players": [0], "level": "?", "skill": "?"})
+            self.text_c(s, "CO-OP LOBBY", 10, (255, 210, 120), self.font_mid)
+            if host:
+                self.text_c(s, "Friends JOIN this address:", 30, (240, 225, 200), self.font_small)
+                self.text_c(s, self.host_ips[0] if self.host_ips else "?", 40, (140, 255, 170), self.font_mid)
+            # the flock: three slots
+            for slot in range(MAX_PLAYERS):
+                x = 58 + slot * 72
+                here = slot in info["players"]
+                vest = VEST_COLORS[slot][0]
+                box = pygame.Rect(x, 62, 60, 56)
+                pygame.draw.rect(s, (40, 18, 14) if here else (20, 10, 8), box)
+                pygame.draw.rect(s, vest if here else (70, 50, 40), box, 2)
+                if here:
+                    face = pygame.transform.scale(self.A.faces[(0, 0, "grin" if slot == 0 else "normal")], (26, 30))
+                    s.blit(face, (x + 17, 66))
+                    pygame.draw.rect(s, vest, (x + 14, 98, 32, 6))
+                    who = "HOST" if slot == 0 else "P%d" % (slot + 1)
+                    if not host and slot == self.me.pid:
+                        who += " (YOU)"
+                    elif host and slot == 0:
+                        who = "YOU (HOST)"
+                    self.text_c_at(s, who, x + 30, 106, (255, 240, 200))
+                else:
+                    self.text_c_at(s, "open", x + 30, 84, (120, 100, 90))
+            self.text_c(s, "LEVEL: %s" % info["level"], 126, (255, 230, 170))
+            self.text_c(s, "SKILL: %s" % info["skill"], 138, (255, 200, 150), self.font_small)
+            n = len(info["players"])
+            if host:
+                self.text_c(s, "ENTER start   LEFT/RIGHT level   UP/DOWN skill   ESC cancel", 158, (230, 210, 190),
+                            self.font_small)
+                self.text_c(s, ("%d goose%s ready" % (n, "" if n == 1 else "s")) +
+                            ("   -   waiting for friends" + "." * (int(self.t * 2) % 4) if n < MAX_PLAYERS else "   -   flock is full!"),
+                            172, (140, 255, 170) if n > 1 else (200, 180, 160), self.font_small)
+                self.text_c(s, "Friends can still join after the match starts.", 184, (170, 150, 130), self.font_small)
+            else:
+                self.text_c(s, "Waiting for the host to start" + "." * (int(self.t * 2) % 4), 162, (140, 255, 170))
+                self.text_c(s, "ESC to leave", 180, (200, 180, 160), self.font_small)
         elif self.mode == "join_entry":
             self.text_c(s, "JOIN CO-OP", 60, (255, 210, 120), self.font_mid)
             self.text_c(s, "Type the host's address and press ENTER:", 88, (240, 225, 200))
@@ -2409,6 +2464,15 @@ class Game:
         elif self.mode == "host_wait":
             if k == pygame.K_ESCAPE:
                 self.leave_coop()
+            elif k in (pygame.K_RETURN, pygame.K_SPACE):
+                self.lobby_start()
+            elif k in (pygame.K_LEFT, pygame.K_a, pygame.K_RIGHT, pygame.K_d):
+                self.pick_level = (self.pick_level + (-1 if k in (pygame.K_LEFT, pygame.K_a) else 1)) % self.unlocked
+            elif k in (pygame.K_UP, pygame.K_w, pygame.K_DOWN, pygame.K_s):
+                self.skill = (self.skill + (-1 if k in (pygame.K_UP, pygame.K_w) else 1)) % 3
+        elif self.mode == "client_lobby":
+            if k == pygame.K_ESCAPE:
+                self.leave_coop()
         elif self.mode == "join_entry":
             if k == pygame.K_ESCAPE:
                 self.mode = "title"
@@ -2507,7 +2571,7 @@ class Game:
                 if self.role != "client":
                     self.inter_t += dt
                 self.draw_victory()
-            elif self.mode in ("host_wait", "join_entry", "joining"):
+            elif self.mode in ("host_wait", "client_lobby", "join_entry", "joining"):
                 self.draw_lobby()
             else:
                 self.draw_menu()
@@ -2773,13 +2837,23 @@ def selftest(out):
     assert host.start_host("127.0.0.1"), host.banner     # localhost only: never collide with real games on a VPN
     assert c1.start_join("127.0.0.1"), c1.banner
     for _ in range(300):
-        if host.host_accept_tick():
-            break
+        host.host_accept_tick()
+        host.host_net_tick()
         c1.client_net_tick()
+        if len(host.players) == 2 and c1.mode == "client_lobby":
+            break
         time.sleep(0.01)
     assert host.role == "host" and len(host.players) == 2, (
         "host never accepted the client", host.mode, host.banner, c1.mode, c1.banner)
+    assert host.mode == "host_wait" and host.level is None, "match started before the host pressed START"
+    assert c1.mode == "client_lobby" and c1.lobby["players"] == [0, 1], ("joiner not in lobby", c1.mode)
+    host.draw_lobby()
+    shot(host, "lobby_host")
+    c1.draw_lobby()
+    shot(c1, "lobby_joiner")
+    host.lobby_start()
     clients = [c1]
+    print("co-op lobby ok")
 
     def coop_frames(n, inputs=None):
         for _ in range(n):
