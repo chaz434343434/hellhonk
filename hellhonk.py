@@ -128,9 +128,14 @@ def load_save():
     try:
         with open(SAVE) as f:
             d = json.load(f)
-        return dict(unlocked=max(1, min(NUM_LEVELS, int(d.get("unlocked", 1)))), last_ip=str(d.get("last_ip", "")))
+        beaten = sorted({int(i) for i in d.get("beaten", []) if 0 <= int(i) < NUM_LEVELS})
+        best = {str(k): float(v) for k, v in dict(d.get("best", {})).items()}
+        unlocked = max(1, min(NUM_LEVELS, int(d.get("unlocked", 1))))
+        # saves from before v1.3 only knew "unlocked": every level below it was beaten
+        beaten = sorted(set(beaten) | set(range(unlocked - 1)))
+        return dict(unlocked=unlocked, last_ip=str(d.get("last_ip", "")), beaten=beaten, best=best)
     except (OSError, ValueError, TypeError, AttributeError):
-        return dict(unlocked=1, last_ip="")
+        return dict(unlocked=1, last_ip="", beaten=[], best={})
 
 
 def write_save(data):
@@ -1687,17 +1692,39 @@ class Game:
         T["secrets"] += len(self.secrets_found)
         T["secrets_total"] += self.level.secrets_total
         T["time"] += self.level_time
-        nxt = self.level_idx + 1
-        if nxt < NUM_LEVELS and nxt + 1 > self.unlocked:
-            self.unlocked = nxt + 1
-            self.save["unlocked"] = self.unlocked
-            write_save(self.save)
+        self.record_beaten(self.level_idx, self.level_time)
         for p in self.players:
             if p.dead:
                 p.carry = json.loads(json.dumps(p.snapshot))
             else:
                 p.carry = dict(health=p.health, armor=p.armor, armor_class=p.armor_class,
                                ammo=dict(p.ammo), owned=dict(p.owned), weapon=p.weapon)
+
+    def record_beaten(self, idx, seconds):
+        """Mark a level beaten, keep the best time, unlock the next one, and save."""
+        sv = self.save
+        sv.setdefault("beaten", [])
+        sv.setdefault("best", {})
+        if idx not in sv["beaten"]:
+            sv["beaten"] = sorted(sv["beaten"] + [idx])
+        k = str(idx)
+        if seconds > 0 and (k not in sv["best"] or seconds < sv["best"][k]):
+            sv["best"][k] = round(seconds, 1)
+            self.new_best = True
+        else:
+            self.new_best = False
+        nxt = idx + 1
+        if nxt < NUM_LEVELS and nxt + 1 > self.unlocked:
+            self.unlocked = nxt + 1
+        sv["unlocked"] = self.unlocked
+        write_save(sv)
+
+    def level_status(self, idx):
+        """('BEATEN', 'best 2:31') / ('NEW', '') for the level picker."""
+        if idx in self.save.get("beaten", []):
+            b = self.save.get("best", {}).get(str(idx))
+            return "BEATEN", ("best %d:%02d" % (int(b) // 60, int(b) % 60)) if b else ""
+        return "NEW", ""
 
     def next_level(self):
         nxt = self.level_idx + 1
@@ -1828,7 +1855,7 @@ class Game:
 
     def lobby_info(self):
         return {"t": "lobby", "players": sorted(p.pid for p in self.players),
-                "level": LEVEL_NAMES[self.pick_level], "skill": SKILLS[self.skill]}
+                "level": LEVEL_NAMES[self.pick_level], "idx": self.pick_level, "skill": SKILLS[self.skill]}
 
     def build_snapshot(self, p):
         L = self.level
@@ -1963,12 +1990,8 @@ class Game:
         if self.mode in ("intermission", "victory") and prev == "play":
             self.grab(False)
             # joiners unlock levels too, not just the host
-            nxt = self.level_idx + 1
-            if nxt < NUM_LEVELS and nxt + 1 > self.unlocked:
-                self.unlocked = nxt + 1
-                self.pick_level = self.unlocked - 1
-                self.save["unlocked"] = self.unlocked
-                write_save(self.save)
+            self.record_beaten(self.level_idx, self.level_time)
+            self.pick_level = self.unlocked - 1
         if self.mode == "play" and prev in ("intermission", "victory", "joining", "client_lobby"):
             self.grab(True)
         for name, x, y, vol in s["snd"]:
@@ -2244,7 +2267,8 @@ class Game:
 
     def menu_items(self):
         if self.mode == "title":
-            return ["START: " + LEVEL_NAMES[self.pick_level], "CO-OP: HOST GAME", "CO-OP: JOIN GAME",
+            arrows = ("< ", " >") if self.unlocked > 1 else ("", "")
+            return ["START: " + arrows[0] + LEVEL_NAMES[self.pick_level] + arrows[1], "CO-OP: HOST GAME", "CO-OP: JOIN GAME",
                     "SKILL: " + SKILLS[self.skill], "MUSIC: " + ("ON" if self.music_on else "OFF"), "QUIT"]
         if self.role == "client":
             return ["RESUME", "MUSIC: " + ("ON" if self.music_on else "OFF"), "LEAVE CO-OP GAME"]
@@ -2272,8 +2296,16 @@ class Game:
             if self.banner:
                 self.text_c(s, self.banner, y0 + 74, (255, 120, 100), self.font_small)
             else:
-                self.text_c(s, "LEFT/RIGHT picks level and skill" if self.unlocked > 1 else "LEFT/RIGHT picks skill",
-                            y0 + 74, (200, 170, 140), self.font_small)
+                status, best = self.level_status(self.pick_level)
+                if status == "BEATEN":
+                    line = "BEATEN - replay it any time" + ("   (%s)" % best if best else "")
+                    col = (140, 255, 170)
+                else:
+                    line = "NOT BEATEN YET"
+                    col = (255, 210, 120)
+                if self.unlocked > 1:
+                    line += "   -   LEFT/RIGHT picks level"
+                self.text_c(s, line, y0 + 74, col, self.font_small)
             self.text_c(s, "WASD move  MOUSE turn  CLICK fire  E use", SH - 22, (230, 210, 190))
             self.text_c(s, "1-6 weapons  TAB map  SHIFT walk  M music", SH - 11, (230, 210, 190))
             ver = "v" + APP_VERSION
@@ -2315,7 +2347,11 @@ class Game:
                     self.text_c_at(s, who, x + 30, 106, (255, 240, 200))
                 else:
                     self.text_c_at(s, "open", x + 30, 84, (120, 100, 90))
-            self.text_c(s, "LEVEL: %s" % info["level"], 126, (255, 230, 170))
+            mark = ""
+            if "idx" in info:
+                st, best = self.level_status(info["idx"])
+                mark = "   (you beat it%s)" % (", " + best if best else "") if st == "BEATEN" else "   (new for you!)"
+            self.text_c(s, "LEVEL: %s%s" % (info["level"], mark), 126, (255, 230, 170))
             self.text_c(s, "SKILL: %s" % info["skill"], 138, (255, 200, 150), self.font_small)
             n = len(info["players"])
             if host:
@@ -2362,6 +2398,8 @@ class Game:
         tm = int(self.level_time)
         self.text(s, "TIME", 90, 116, (255, 120, 60), self.font_mid)
         self.text(s, "%d:%02d" % (tm // 60, tm % 60), 200, 116, (255, 240, 200), self.font_mid)
+        if getattr(self, "new_best", False) and int(t * 3) % 2:
+            self.text(s, "NEW BEST!", 236, 119, (140, 255, 170), self.font_small)
         self.text(s, "PAR", 90, 132, (255, 120, 60), self.font_mid)
         self.text(s, "%d:%02d" % (self.level.par // 60, self.level.par % 60), 200, 132, (255, 240, 200), self.font_mid)
         if t > 1.5:
@@ -2819,6 +2857,7 @@ def selftest(out):
     g.owned["egggun"] = True
     g.ammo["eggs"] = 33
     g.health = 20
+    g.level_time = 95.0
     g.finish_level()
     g.inter_t = 5
     g.draw_intermission()
@@ -2828,6 +2867,22 @@ def selftest(out):
     assert g.health == 100, ("no health refill", g.health)
     assert g.ammo["eggs"] == 33 + LEVEL_AMMO_BONUS["eggs"], ("no ammo top-up", g.ammo)
     assert load_save()["unlocked"] >= 2, "save not written"
+    sv = load_save()
+    assert 0 in sv["beaten"] and "0" in sv["best"], ("beaten level / best time not saved", sv)
+    assert g.level_status(0)[0] == "BEATEN" and g.level_status(3)[0] == "NEW", (g.level_status(0), g.level_status(3))
+    # replaying a beaten level: pick it on the title screen and start
+    g.mode, g.pick_level = "title", 0
+    g.menu_i = 0
+    g.draw_menu()
+    shot(g, "title_replay_picker")
+    g.menu_select(0)
+    assert g.mode == "play" and g.level_idx == 0, "could not replay a beaten level"
+    # older saves (only "unlocked") count everything below it as beaten
+    with open(SAVE, "w") as f:
+        json.dump({"unlocked": 3}, f)
+    assert load_save()["beaten"] == [0, 1], load_save()
+    write_save(g.save)
+    print("beaten levels + replay ok")
     print("progression + save ok")
 
     # ---- CO-OP: a host and two clients in this process, over real localhost sockets
