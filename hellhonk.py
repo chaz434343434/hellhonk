@@ -146,7 +146,21 @@ def local_ips():
     except OSError:
         pass
     ips.discard("127.0.0.1")
-    return sorted(ips) or ["127.0.0.1"]
+    ips = {ip for ip in ips if not ip.startswith("169.254.")}      # self-assigned, never reachable
+
+    def label(ip):
+        if ip.startswith("26."):
+            return "%s  (Radmin VPN)" % ip
+        if ip.startswith("100.") and 64 <= int(ip.split(".")[1]) <= 127:
+            return "%s  (Tailscale)" % ip
+        if ip.startswith("192.168.137."):
+            return "%s  (hotspot)" % ip
+        return "%s  (local network)" % ip
+
+    def rank(ip):   # VPN addresses first: that's what a friend in another house needs
+        return (0 if ip.startswith(("26.", "100.")) else 2 if ip.startswith("192.168.137.") else 1, ip)
+
+    return [label(ip) for ip in sorted(ips, key=rank)] or ["127.0.0.1"]
 
 
 # =================================================================== networking
@@ -1680,11 +1694,11 @@ class Game:
         self.load_level(self.level_idx)
 
     # ------------------------------------------------------------- co-op: hosting
-    def start_host(self):
+    def start_host(self, bind=""):
         try:
             ls = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            ls.bind(("", PORT))
+            ls.bind((bind, PORT))
             ls.listen(1)
             ls.setblocking(False)
         except OSError as ex:
@@ -2689,14 +2703,15 @@ def selftest(out):
     host, client = g, Game(headless=True)
     host.leave_coop()
     host.pick_level, host.skill = 0, 1
-    assert host.start_host(), host.banner
+    assert host.start_host("127.0.0.1"), host.banner     # localhost only: never collide with real games on a VPN
     assert client.start_join("127.0.0.1"), client.banner
     for _ in range(300):
         if host.host_wait_tick():
             break
         client.client_net_tick()
         time.sleep(0.01)
-    assert host.role == "host" and len(host.players) == 2, "host never accepted the client"
+    assert host.role == "host" and len(host.players) == 2, (
+        "host never accepted the client", host.mode, host.banner, client.mode, client.banner)
 
     def coop_frames(n, cinp=None, hinp=None):
         for _ in range(n):
@@ -2743,6 +2758,7 @@ def selftest(out):
     client.me.px, client.me.py, client.me.ang = 7.5, 36.0, -math.pi / 2
     k0 = host.kills
     for _ in range(300):
+        client.me.ang = math.atan2(e.y - client.me.py, e.x - client.me.px)   # track it like a real player
         coop_frames(1, cinp=dict(fire=True))
         if not e.alive:
             break
