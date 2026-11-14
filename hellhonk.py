@@ -32,7 +32,18 @@ PROJ_H, PROJ_V = 160.0, 192.0
 EYE = 0.41
 PR = 0.27                    # player radius
 SKILLS = ["GENTLE GOSLING", "HONK IF YOU DARE", "PEACE WAS NEVER AN OPTION"]
-SAVE = os.path.join(os.environ.get("APPDATA", os.path.dirname(os.path.abspath(__file__))), "HELLHONK", "save.json")
+MAX_PLAYERS = 3
+
+
+def _save_dir():
+    if sys.platform == "darwin":
+        return os.path.expanduser("~/Library/Application Support/HELLHONK")
+    if os.environ.get("APPDATA"):
+        return os.path.join(os.environ["APPDATA"], "HELLHONK")
+    return os.path.expanduser("~/.local/share/hellhonk")
+
+
+SAVE = os.path.join(_save_dir(), "save.json")
 
 ENEMY = {
     "quackling": dict(hp=20, speed=2.0, r=.30, h=.55, pain=.78, sight="quack_sight", pains="pain_q", die="die_q",
@@ -256,6 +267,8 @@ class Player:
         self.snapshot = None
         self.carry = None
         # network bookkeeping (remote players only)
+        self.net = None
+        self.snd = []
         self.fire_held = False
         self.events = []
         self.warp = [0, 0.0, 0.0, 0.0]
@@ -518,9 +531,9 @@ class Game:
         self.players = [self.me]
         self.headless = headless
         self.role = "solo"            # solo | host | client
-        self.net = None
-        self.listener = None
-        self.net_sounds = []
+        self.net = None              # client: connection to the host
+        self.listener = None         # host: accepts joiners (also mid-game)
+        self.joiners = []            # host: [Net, connect_time] waiting for their hello
         pygame.mixer.pre_init(SR, -16, 2, 512)
         pygame.init()
         self.window = pygame.display.set_mode(WIN)
@@ -642,13 +655,19 @@ class Game:
         self.load_level(idx)
 
     def spawn_point(self, p):
+        """Level start for P1; free spots beside/behind it for the others."""
         sx, sy, sa = self.level.start
         if p.pid == 0:
             return sx, sy, sa
+        cands = []
         for d in (0.8, -0.8, 1.6, -1.6):
-            for ox, oy in ((math.cos(sa + math.pi / 2) * d, math.sin(sa + math.pi / 2) * d), (-math.cos(sa) * d, -math.sin(sa) * d)):
-                if not self.solid_at(sx + ox, sy + oy, PR + 0.05):
-                    return sx + ox, sy + oy, sa
+            cands += [(math.cos(sa + math.pi / 2) * d, math.sin(sa + math.pi / 2) * d),
+                      (-math.cos(sa) * abs(d), -math.sin(sa) * abs(d))]
+        placed = [(o.px, o.py) for o in self.players if o is not p and getattr(o, "placed", False)]
+        for ox, oy in cands:
+            x, y = sx + ox, sy + oy
+            if not self.solid_at(x, y, PR + 0.05) and all((x - a) ** 2 + (y - b) ** 2 >= 0.36 for a, b in placed):
+                return x, y, sa
         return sx, sy, sa
 
     def spawn_things(self, L, enemies=True):
@@ -701,6 +720,8 @@ class Game:
         self.update_grids()
         self.light_now = L.light.copy()
         for p in self.players:
+            p.placed = False
+        for p in self.players:
             self.cur = p
             self.reset_player(p, p.carry)
             self.msg(L.name)
@@ -709,7 +730,9 @@ class Game:
         self.play_song(L.song)
 
     def reset_player(self, p, c):
+        p.placed = False
         p.px, p.py, p.ang = self.spawn_point(p)
+        p.placed = True
         p.vx = p.vy = 0.0
         p.health, p.armor, p.armor_class = c["health"], c["armor"], c["armor_class"]
         p.ammo = dict(c["ammo"])
@@ -768,8 +791,11 @@ class Game:
         """Positional sounds are heard by everyone; sounds without a position belong to the current player."""
         if x is None and who is None:
             who = self.cur
-        if self.role == "host" and self.net and (who is None or who.remote):
-            self.net_sounds.append([name, None if x is None else round(x, 2), None if y is None else round(y, 2), vol])
+        if self.role == "host":
+            ev = [name, None if x is None else round(x, 2), None if y is None else round(y, 2), vol]
+            for p in self.players:
+                if p.remote and (who is None or who is p):
+                    p.snd.append(ev)
         if who is not None and who is not self.me:
             return
         self.play_sfx(name, x, y, vol)
@@ -1699,56 +1725,78 @@ class Game:
             ls = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             ls.bind((bind, PORT))
-            ls.listen(1)
+            ls.listen(4)
             ls.setblocking(False)
         except OSError as ex:
             self.banner = "Could not host on port %d: %s" % (PORT, ex)
             return False
         self.listener = ls
+        self.joiners = []
         self.mode = "host_wait"
         self.host_ips = local_ips()
         return True
 
-    def host_wait_tick(self):
-        """Lobby: accept one player, then start the game for both."""
-        try:
-            sock, addr = self.listener.accept()
-        except (BlockingIOError, InterruptedError):
-            return False
-        except OSError:
-            return False
-        net = Net(sock)
-        t0 = time.time()
-        hello = None
-        while time.time() - t0 < 3 and net.alive and hello is None:
-            for m in net.poll():
-                if m.get("t") == "hello":
-                    hello = m
-            time.sleep(0.01)
-        if not hello or hello.get("v") != VERSION:
-            theirs = str(hello.get("v", "?")).replace("hellhonk-", "v") if hello else "?"
-            net.send({"t": "reject", "why": "host is on v%s, you are on %s - restart the game to update"
-                      % (APP_VERSION, theirs) if hello else "no hello"})
-            net.close()
-            self.banner = "A player on %s tried to join (you are v%s)." % (theirs, APP_VERSION)
-            return False
-        self.listener.close()
-        self.listener = None
-        self.net = net
-        self.role = "host"
-        p2 = Player(1, remote=True)
-        self.players = [self.me, p2]
-        net.send({"t": "welcome", "skill": self.skill})
-        self.new_game(self.pick_level)
-        self.msg_all("Co-op started! Shared keys, separate ammo. Don't peck each other.")
-        return True
+    def host_accept_tick(self):
+        """Accept joiners (lobby or mid-game). Returns True when this call started the game."""
+        started = False
+        if self.listener:
+            try:
+                while True:
+                    sock, _ = self.listener.accept()
+                    self.joiners.append([Net(sock), time.time()])
+            except (BlockingIOError, InterruptedError):
+                pass
+            except OSError:
+                pass
+        for item in list(self.joiners):
+            net, t0 = item
+            hello = next((m for m in net.poll() if m.get("t") == "hello"), None)
+            if hello is None:
+                if not net.alive or time.time() - t0 > 5:
+                    net.close()
+                    self.joiners.remove(item)
+                continue
+            self.joiners.remove(item)
+            if hello.get("v") != VERSION:
+                theirs = str(hello.get("v", "?")).replace("hellhonk-", "v")
+                net.send({"t": "reject", "why": "host is on v%s, you are on %s - restart the game to update"
+                          % (APP_VERSION, theirs)})
+                net.close()
+                self.banner = "A player on %s tried to join (you are v%s)." % (theirs, APP_VERSION)
+                self.msg("A player on %s tried to join - they need to update." % theirs, self.me)
+                continue
+            if len(self.players) >= MAX_PLAYERS:
+                net.send({"t": "reject", "why": "the game is full (%d geese max)" % MAX_PLAYERS})
+                net.close()
+                continue
+            used = {p.pid for p in self.players}
+            p = Player(min(set(range(MAX_PLAYERS)) - used), remote=True)
+            p.net = net
+            self.players.append(p)
+            net.send({"t": "welcome", "skill": self.skill, "pid": p.pid})
+            if self.role != "host":
+                self.role = "host"
+                self.new_game(self.pick_level)
+                self.msg_all("Co-op started! Shared keys, separate ammo. Don't peck each other.")
+                started = True
+            else:
+                # late join: drop them in at the level start with a fresh loadout for this level
+                p.carry = self.default_loadout(self.level_idx)
+                self.cur = p
+                self.reset_player(p, p.carry)
+                self.cur = self.me
+                self.effects.append(Effect("telefog", p.px, p.py, 0.0, 3, 0.5))
+                self.msg_all("Player %d joined the flock!" % (p.pid + 1))
+                self.sound("teleport", p.px, p.py)
+        return started
 
     def host_net_tick(self):
-        if not self.net:
+        if self.role != "host":
             return
-        for m in self.net.poll():
-            if m.get("t") == "in" and len(self.players) > 1:
-                p = self.players[1]
+        for p in [q for q in self.players if q.remote]:
+            for m in p.net.poll():
+                if m.get("t") != "in":
+                    continue
                 if m.get("ack", 0) >= p.warp[0] and self.level and m.get("lvl") == self.level_idx:
                     nx, ny = float(m["x"]), float(m["y"])
                     if 0 < nx < MW and 0 < ny < MH and not self.blocked_cell(nx, ny):
@@ -1757,28 +1805,27 @@ class Game:
                     p.ang = float(m["a"]) % math.tau
                 p.fire_held = bool(m.get("fire"))
                 p.events.extend(e for e in m.get("ev", []) if e in ONE_SHOT)
-        if not self.net.alive:
-            self.net.close()
-            self.net = None
-            self.role = "solo"
-            self.players = [self.me]
-            self.cur = self.me
-            if self.mode in ("play", "intermission"):
-                self.msg("Your partner left the pond. Carrying on solo.")
-            return
-        if self.level is not None:
-            self.net.send(self.build_snapshot(self.players[1]), droppable=True)
+            if not p.net.alive:
+                p.net.close()
+                self.players.remove(p)
+                self.cur = self.me
+                if self.mode in ("play", "intermission", "victory"):
+                    self.msg_all("Player %d left the pond." % (p.pid + 1))
+                continue
+            if self.level is not None:
+                p.net.send(self.build_snapshot(p), droppable=True)
 
     def build_snapshot(self, p):
         L = self.level
         things = [[k, f, round(x, 2), round(y, 2), round(z, 2), h, int(b)] for k, f, x, y, z, h, b in self.drawables(p)]
         snap = dict(
-            t="snap", lvl=self.level_idx, mode=self.mode, skill=self.skill,
+            t="snap", lvl=self.level_idx, mode=self.mode, skill=self.skill, pid=p.pid,
             doors=[round(d.open, 2) for d in L.doors],
             sw=bool(L.exit_cell and L.wall[L.exit_cell[1], L.exit_cell[0]] == Assets.SWON),
             gone=[i for i, d in enumerate(self.decor) if d.removed], things=things,
             keys=sorted(self.keys), boss=None if self.boss_frac is None else round(self.boss_frac, 3),
-            snd=self.net_sounds, warp=p.warp, mate=[round(self.me.health), int(self.me.dead)],
+            snd=p.snd, warp=p.warp,
+            mates=[[o.pid, round(o.health), int(o.dead), round(o.px, 2), round(o.py, 2)] for o in self.players if o is not p],
             stats=[self.kills, self.kills_total, self.items, self.items_total, len(self.secrets_found),
                    L.secrets_total, round(self.level_time, 1)],
             total=getattr(self, "total", {}), inter=round(getattr(self, "inter_t", 0.0), 2),
@@ -1787,7 +1834,7 @@ class Game:
                     shake=round(p.shake, 2), face=dict(look=p.face["look"], mood=p.face["mood"]), rage=p.rage,
                     invuln=round(p.invuln, 1), boots=round(p.boots, 1), dead=p.dead, dead_t=round(p.dead_t, 2),
                     eye=round(p.eye, 3), msgs=p.msgs, reveal=bool(getattr(self, "map_reveal", False))))
-        self.net_sounds = []
+        p.snd = []
         return snap
 
     # ------------------------------------------------------------- co-op: joining
@@ -1884,7 +1931,8 @@ class Game:
             me.warp_ack = w[0]
             me.px, me.py, me.ang = w[1], w[2], w[3]
             me.vx = me.vy = 0.0
-        self.mate = s["mate"]
+        self.mates = s["mates"]
+        me.pid = s.get("pid", me.pid)
         (self.kills, self.kills_total, self.items, self.items_total, nsec, self.secrets_total_net,
          self.level_time) = s["stats"]
         self.secrets_found = set(range(nsec))
@@ -1894,6 +1942,13 @@ class Game:
         self.inter_t = s["inter"]
         if self.mode in ("intermission", "victory") and prev == "play":
             self.grab(False)
+            # joiners unlock levels too, not just the host
+            nxt = self.level_idx + 1
+            if nxt < NUM_LEVELS and nxt + 1 > self.unlocked:
+                self.unlocked = nxt + 1
+                self.pick_level = self.unlocked - 1
+                self.save["unlocked"] = self.unlocked
+                write_save(self.save)
         if self.mode == "play" and prev in ("intermission", "victory", "joining"):
             self.grab(True)
         for name, x, y, vol in s["snd"]:
@@ -1926,6 +1981,12 @@ class Game:
         if self.net:
             self.net.close()
         self.net = None
+        for p in self.players:
+            if p.net:
+                p.net.close()
+        for net, _ in self.joiners:
+            net.close()
+        self.joiners = []
         if self.listener:
             self.listener.close()
             self.listener = None
@@ -1965,7 +2026,7 @@ class Game:
                 f = "pain"
             else:
                 f = "walk%d" % (int(p.bob) % 2)
-            out.append(("goose", f, p.px, p.py, 0.0, 0.62, p.wstate == "fire" and p.wfi == 0))
+            out.append(("goose%d" % (p.pid % 3), f, p.px, p.py, 0.0, 0.62, p.wstate == "fire" and p.wfi == 0))
         for p in self.pickups:
             out.append((p.kind, "0", p.x, p.y, 0.0, ITEM_H[p.kind], p.kind in ("ykey", "bkey", "rkey", "goldegg", "megahonk")))
         for d in self.decor:
@@ -1979,6 +2040,12 @@ class Game:
             i = min(fx.frames - 1, int(fx.t / fx.dur * fx.frames))
             out.append((fx.kind, str(i), fx.x, fx.y, fx.z, FX_H[fx.kind], fx.kind != "blood"))
         return out
+
+    def mate_status(self):
+        """[(pid, health, dead)] for every other player, host or client side."""
+        if self.role == "client":
+            return [(m[0], m[1], bool(m[2])) for m in getattr(self, "mates", [])]
+        return [(p.pid, p.health, p.dead) for p in self.players if p is not self.me]
 
     def client_things(self):
         """The host's list plus our own animated decor (lamps/barrels flicker locally)."""
@@ -2013,12 +2080,9 @@ class Game:
         for i, (m, _) in enumerate(self.msgs):
             self.text(self.view, m, 3, 2 + i * 10, (255, 230, 170))
         pw = []
-        if len(self.players) > 1 or self.role == "client":
-            if self.role == "client":
-                hp, dead = getattr(self, "mate", [100, 0])
-            else:
-                hp, dead = self.players[1].health, self.players[1].dead
-            pw.append(("PARTNER " + ("DOWN" if dead else "%d%%" % hp), (255, 120, 120) if dead else (150, 230, 255)))
+        for pid, hp, dead in self.mate_status():
+            pw.append(("P%d %s" % (pid + 1, "DOWN" if dead else "%d%%" % hp),
+                       (255, 120, 120) if dead else (150, 230, 255)))
         if self.rage:
             pw.append(("RAGE", (255, 80, 60)))
         if self.invuln > 0:
@@ -2035,9 +2099,10 @@ class Game:
             self.text_c(self.view, "THE HONKMOTHER", VH - 25, (255, 220, 150))
         if self.dead and self.dead_t > 1.0:
             line = "YOU GOT COOKED. Press USE to try again."
-            if len(self.players) > 1 or self.role == "client":
-                alive = (not self.mate[1]) if self.role == "client" else bool(self.living())
-                line = "YOU GOT COOKED. Press USE to rejoin." if alive else "BOTH GEESE COOKED... restarting"
+            mates = self.mate_status()
+            if mates:
+                alive = any(not dead for _, _, dead in mates)
+                line = "YOU GOT COOKED. Press USE to rejoin." if alive else "THE WHOLE FLOCK GOT COOKED... restarting"
             self.text_c(self.view, line, VH // 2 - 6, (255, 220, 200))
         self.screen.blit(self.view, (0, 0))
         self.draw_bar()
@@ -2089,7 +2154,7 @@ class Game:
             if seen[max(0, ty - 1):ty + 2, max(0, tx - 1):tx + 2].any():
                 pygame.draw.circle(v, (90, 255, 150), (int(ox + tx * sc + sc / 2), int(oy + ty * sc + sc / 2)), 2)
         if self.role == "client":
-            mates = [(t[2], t[3]) for t in self.net_things if t[0] == "goose"]
+            mates = [(t[2], t[3]) for t in self.net_things if t[0].startswith("goose")]
         else:
             mates = [(p.px, p.py) for p in self.players if p is not self.me]
         for mx_, my_ in mates:
@@ -2205,7 +2270,9 @@ class Game:
             for i, ip in enumerate(self.host_ips[:4]):
                 self.text_c(s, "%s" % ip, 96 + i * 13, (140, 255, 170), self.font_mid)
             self.text_c(s, "port %d   -   level: %s" % (PORT, LEVEL_NAMES[self.pick_level]), 152, (200, 180, 160))
-            self.text_c(s, "Waiting for player 2" + "." * (int(self.t * 2) % 4) + "   (ESC to cancel)", 170, (255, 230, 170))
+            self.text_c(s, "Waiting for a player" + "." * (int(self.t * 2) % 4) + "   (ESC to cancel)", 166, (255, 230, 170))
+            self.text_c(s, "Up to %d geese. Others can join after it starts." % MAX_PLAYERS, 180, (200, 180, 160),
+                        self.font_small)
         elif self.mode == "join_entry":
             self.text_c(s, "JOIN CO-OP", 60, (255, 210, 120), self.font_mid)
             self.text_c(s, "Type the host's address and press ENTER:", 88, (240, 225, 200))
@@ -2406,8 +2473,8 @@ class Game:
                 self.present()
                 self.updater.apply_and_restart()
                 break
-            if self.mode == "host_wait":
-                self.host_wait_tick()
+            if self.listener:
+                self.host_accept_tick()
             if self.role == "client":
                 self.client_net_tick()
             if self.mode == "play" and self.level is not None:
@@ -2699,101 +2766,132 @@ def selftest(out):
     assert load_save()["unlocked"] >= 2, "save not written"
     print("progression + save ok")
 
-    # ---- CO-OP: a host and a client in this process, over a real localhost socket
-    host, client = g, Game(headless=True)
+    # ---- CO-OP: a host and two clients in this process, over real localhost sockets
+    host, c1, c2 = g, Game(headless=True), Game(headless=True)
     host.leave_coop()
     host.pick_level, host.skill = 0, 1
     assert host.start_host("127.0.0.1"), host.banner     # localhost only: never collide with real games on a VPN
-    assert client.start_join("127.0.0.1"), client.banner
+    assert c1.start_join("127.0.0.1"), c1.banner
     for _ in range(300):
-        if host.host_wait_tick():
+        if host.host_accept_tick():
             break
-        client.client_net_tick()
+        c1.client_net_tick()
         time.sleep(0.01)
     assert host.role == "host" and len(host.players) == 2, (
-        "host never accepted the client", host.mode, host.banner, client.mode, client.banner)
+        "host never accepted the client", host.mode, host.banner, c1.mode, c1.banner)
+    clients = [c1]
 
-    def coop_frames(n, cinp=None, hinp=None):
+    def coop_frames(n, inputs=None):
         for _ in range(n):
-            host.update(1 / 35, dict(hinp or {}))
+            host.host_accept_tick()
+            host.update(1 / 35, {})
             host.host_net_tick()
             time.sleep(0.002)
-            client.client_net_tick()
-            if client.mode == "play" and client.level is not None:
-                client.client_step(1 / 35, dict(cinp or {}))
+            for c in clients:
+                c.client_net_tick()
+                if c.mode == "play" and c.level is not None:
+                    c.client_step(1 / 35, dict((inputs or {}).get(c, {})))
             time.sleep(0.002)
             host.host_net_tick()
 
     coop_frames(20)
-    assert client.level is not None and client.level_idx == 0 and client.mode == "play", "client never got the level"
+    assert c1.level is not None and c1.level_idx == 0 and c1.mode == "play", "client never got the level"
     p2 = host.players[1]
-    assert abs(p2.px - client.me.px) < 0.01, "client spawn not synced"
-    client.draw_play()
-    shot(client, "coop_client_start")
-    host.draw_play()
-    shot(host, "coop_host_sees_partner")
-    geese = [t for t in host.build_snapshot(p2)["things"] if t[0] == "goose"]
-    assert len(geese) == 1 and abs(geese[0][2] - host.me.px) < 0.01, "client should see exactly the host goose"
-    assert any(k == "goose" for k, *_ in host.drawables(host.me)), "host does not see the partner goose"
-
-    # client walks: host must follow
-    x0 = p2.py
-    coop_frames(30, cinp=dict(fwd=1))
-    assert p2.py < x0 - 0.5, ("host did not get client movement", x0, p2.py)
+    assert abs(p2.px - c1.me.px) < 0.01, "client spawn not synced"
+    c1.draw_play()
+    shot(c1, "coop_client_start")
+    y0 = p2.py
+    coop_frames(30, {c1: dict(fwd=1)})
+    assert p2.py < y0 - 0.5, ("host did not get client movement", y0, p2.py)
     print("co-op connect + movement sync ok")
 
-    # client opens the gazebo door
-    client.me.px, client.me.py, client.me.ang = 7.5, 38.7, -math.pi / 2
+    # a third goose joins a game that's already running
+    assert c2.start_join("127.0.0.1"), c2.banner
+    clients.append(c2)
+    coop_frames(30)
+    assert len(host.players) == 3 and c2.mode == "play" and c2.level_idx == host.level_idx, "late join failed"
+    p3 = host.players[2]
+    assert p3.pid == 2 and math.hypot(p3.px - host.me.px, p3.py - host.me.py) > 0.5, "P3 spawned on top of P1"
+    assert sorted(k for k, *_ in host.drawables(host.me) if k.startswith("goose")) == ["goose1", "goose2"]
+    for p in (p2, p3):
+        assert len([t for t in host.build_snapshot(p)["things"] if t[0].startswith("goose")]) == 2, "missing geese"
+    coop_frames(5)
+    assert len(c2.mates) == 2 and len(c1.mates) == 2, "HUD partner list wrong"
+    c2.me.ang = math.atan2(host.me.py - c2.me.py, host.me.px - c2.me.px)
     coop_frames(3)
-    coop_frames(1, cinp=dict(use=True))
+    c2.draw_play()
+    shot(c2, "coop3_late_joiner")
+    print("3-player co-op + late join ok")
+
+    # client opens the gazebo door
+    c1.me.px, c1.me.py, c1.me.ang = 7.5, 38.7, -math.pi / 2
+    coop_frames(3)
+    coop_frames(1, {c1: dict(use=True)})
     coop_frames(40)
     assert host.level.door_obj(7, 37).open >= 1.0, "client could not open a door"
-    assert client.level.door_obj(7, 37).open >= 0.99, "door state not synced to client"
+    assert c2.level.door_obj(7, 37).open >= 0.99, "door state not synced to the other client"
     print("co-op doors ok")
 
     # client shoots a monster the host simulates
     e = Enemy("quackling", 7.5, 33.5)
     host.enemies = [e]          # just this one, so nothing else gets in the way
     host.kills_total += 1
-    client.me.px, client.me.py, client.me.ang = 7.5, 36.0, -math.pi / 2
+    c1.me.px, c1.me.py, c1.me.ang = 7.5, 36.0, -math.pi / 2
     k0 = host.kills
     for _ in range(300):
-        client.me.ang = math.atan2(e.y - client.me.py, e.x - client.me.px)   # track it like a real player
-        coop_frames(1, cinp=dict(fire=True))
+        c1.me.ang = math.atan2(e.y - c1.me.py, e.x - c1.me.px)   # track it like a real player
+        coop_frames(1, {c1: dict(fire=True)})
         if not e.alive:
             break
     assert not e.alive and host.kills == k0 + 1, "client's shots did not count on the host"
-    assert client.me.ammo["pebbles"] < 50 or client.me.weapon != "honker", "client ammo not synced"
-    client.draw_play()
-    shot(client, "coop_client_kill")
+    c1.draw_play()
+    shot(c1, "coop_client_kill")
     print("co-op combat ok")
 
-    # client dies and respawns while the host lives
+    # one goose dies and respawns while the others live
     host.cur = p2
     host.damage_player(999)
     host.cur = host.me
     coop_frames(40)
-    assert client.me.dead, "client death not synced"
-    coop_frames(1, cinp=dict(use=True))
+    assert c1.me.dead, "client death not synced"
+    coop_frames(1, {c1: dict(use=True)})
     coop_frames(10)
-    assert not p2.dead and not client.me.dead and p2.health == 100, "respawn failed"
+    assert not p2.dead and not c1.me.dead and p2.health == 100, "respawn failed"
     print("co-op death + respawn ok")
 
-    # level change follows the host
+    # the whole flock dies: level restarts by itself
+    for p in host.players:
+        host.cur = p
+        host.damage_player(999)
+    host.cur = host.me
+    coop_frames(int(35 * 3.6))
+    assert all(not p.dead for p in host.players), "flock wipe did not restart the level"
+    print("co-op flock wipe restart ok")
+
+    # level change follows the host, and joiners save their progress too
+    c1.unlocked = 1
+    c1.save["unlocked"] = 1
     host.finish_level()
     coop_frames(5)
-    assert client.mode == "intermission", client.mode
-    client.draw_intermission()
-    shot(client, "coop_client_intermission")
+    assert c1.mode == "intermission" and c2.mode == "intermission", (c1.mode, c2.mode)
+    assert c1.unlocked == 2 and load_save()["unlocked"] >= 2, "joiner did not save the unlocked level"
+    c1.draw_intermission()
+    shot(c1, "coop_client_intermission")
     host.next_level()
     coop_frames(10)
-    assert client.mode == "play" and client.level_idx == 1, "client did not follow to level 2"
-    print("co-op level change ok")
+    assert all(c.mode == "play" and c.level_idx == 1 for c in clients), "clients did not follow to level 2"
+    print("co-op level change + joiner save ok")
 
-    # client leaves: host keeps playing solo
-    client.leave_coop()
+    # players leave one at a time; the host keeps going
+    c2.leave_coop()
+    clients.remove(c2)
     coop_frames(5)
-    assert host.role == "solo" and len(host.players) == 1, "host did not handle the disconnect"
+    assert host.role == "host" and len(host.players) == 2, "host did not drop P3 cleanly"
+    c1.leave_coop()
+    clients.remove(c1)
+    coop_frames(5)
+    assert len(host.players) == 1, "host did not drop P2 cleanly"
+    host.leave_coop()
     print("co-op disconnect ok")
 
     # ---- fuzz every level

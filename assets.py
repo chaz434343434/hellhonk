@@ -991,8 +991,14 @@ def honkmother(pose):
     return s
 
 
-def coop_goose(pose):
-    """The other player: a white goose in a teal feather vest holding a brass horn."""
+VEST_COLORS = [((40, 150, 130), (150, 230, 210)),    # P1 teal
+               ((220, 120, 30), (255, 200, 140)),    # P2 orange
+               ((130, 60, 190), (210, 170, 255))]    # P3 purple
+
+
+def coop_goose(pose, vest=0):
+    """A co-op player: a white goose in a coloured feather vest holding a brass horn."""
+    vest_c, vest_hi = VEST_COLORS[vest % len(VEST_COLORS)]
     s = S(44, 60)
     if pose.startswith("d"):
         return dead_pile(s, (240, 240, 232), int(pose[1]))
@@ -1000,9 +1006,9 @@ def coop_goose(pose):
     white = (245, 245, 238) if pose != "pain" else (255, 170, 170)
     feet(s, 22, 59, 7, step)
     pygame.draw.ellipse(s, white, (6, 28, 32, 28))
-    pygame.draw.polygon(s, (40, 150, 130), [(9, 34), (35, 34), (33, 52), (11, 52)])
+    pygame.draw.polygon(s, vest_c, [(9, 34), (35, 34), (33, 52), (11, 52)])
     for y in (39, 45):
-        pygame.draw.line(s, (150, 230, 210), (11, y), (33, y), 1)
+        pygame.draw.line(s, vest_hi, (11, y), (33, y), 1)
     for i in range(10):  # neck
         pygame.draw.circle(s, white, (22, 30 - i * 2), 5)
     pygame.draw.circle(s, white, (22, 9), 7)
@@ -1277,8 +1283,9 @@ class Assets:
             "gosling": frames(gosling, ["walk0", "walk1", "bite0", "bite1", "pain", "d0", "d1", "d2"]),
             "heron": frames(heron, ["walk0", "walk1", "wind", "fire", "pain", "d0", "d1", "d2"]),
             "honkmother": frames(honkmother, ["walk0", "walk1", "atk0", "atk1", "pain", "d0", "d1", "d2"]),
-            "goose": frames(coop_goose, ["walk0", "walk1", "fire", "pain", "d2"]),
         }
+        for i in range(len(VEST_COLORS)):
+            self.sprites["goose%d" % i] = frames(lambda p, i=i: coop_goose(p, i), ["walk0", "walk1", "fire", "pain", "d2"])
         for k in ("bread", "loaf", "crumbs", "vest", "feather", "pebbles", "pebblebox", "eggs", "egggun", "ykey", "bkey"):
             self.sprites[k] = {"0": surf_arr(item(k))}
         for k in ("downjacket", "eggcrate", "baguette", "baguettes", "corn", "cornsack", "flinger", "bazooka",

@@ -1,0 +1,62 @@
+name: Mac build
+
+# Every published release gets Mac builds attached a few minutes later.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and attach to (e.g. v1.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15          # Apple Silicon (M1/M2/M3/M4 Mac mini, MacBooks, iMacs)
+            arch: arm64
+          - os: macos-15-intel    # older Intel Macs
+            arch: intel
+    runs-on: ${{ matrix.os }}
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install pygame==2.6.1 numpy pyinstaller pillow
+
+      - name: Self-test from source
+        run: python hellhonk.py --selftest out-src
+
+      - name: Build app
+        run: python build.py
+
+      - name: Self-test the built app
+        run: dist/HellHonk.app/Contents/MacOS/HellHonk --selftest out-app
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "dist/HellHonk-mac-${{ matrix.arch }}.zip" --clobber
+
+      - name: Keep screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-${{ matrix.arch }}-selftest
+          path: |
+            out-src/*.png
+            out-app/*.png

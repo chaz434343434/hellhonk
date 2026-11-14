@@ -62,9 +62,11 @@
   <div class="wrap">
     <h1>HELLHONK</h1>
     <div class="tag">EPISODE 1: FOWL WATERS</div>
-    <a class="btn" href="https://github.com/chaz434343434/hellhonk/releases/latest/download/HellHonk.exe">DOWNLOAD FOR WINDOWS</a>
-    <a class="btn alt" href="https://github.com/chaz434343434/hellhonk/releases">ALL VERSIONS</a>
-    <div class="small">One file, about 30 MB, no install and no Python needed. The game keeps itself up to date.</div>
+    <a class="btn" href="https://github.com/chaz434343434/hellhonk/releases/latest/download/HellHonk.exe">WINDOWS</a>
+    <a class="btn" href="https://github.com/chaz434343434/hellhonk/releases/latest/download/HellHonk-mac-arm64.zip">MAC (APPLE SILICON)</a>
+    <a class="btn alt" href="https://github.com/chaz434343434/hellhonk/releases/latest/download/HellHonk-mac-intel.zip">MAC (INTEL)</a>
+    <div class="small">No install and no Python needed. The game keeps itself up to date. Not sure which Mac you have?
+      Apple menu &rarr; About This Mac: "Chip: Apple M&hellip;" means Apple Silicon, "Processor: Intel" means Intel.</div>
   </div>
 </header>
 
@@ -95,18 +97,26 @@
       <div class="card"><b>8 enemies</b><br>Quacklings, Mallard Gunners, Fire Swans, Pelican Bombers, Hell Goslings, Heron Wraiths, Gander Brutes, and the Honkmother herself.</div>
       <div class="card"><b>6 weapons</b><br>Peck, Honker, Egg-Gun, Feather Flinger, Baguette Bazooka, and the MEGAHONK.</div>
       <div class="card"><b>Powerups</b><br>Rage Bread, the Golden Egg, rubber boots and a park map, plus teleporters and secrets in every level.</div>
-      <div class="card"><b>2-player co-op</b><br>Host or join over the network. Keys are shared, you can respawn while your partner fights on, and the boss gets tougher.</div>
+      <div class="card"><b>3-player co-op</b><br>Host or join over the network, even mid-level. Keys are shared, you respawn while the flock fights on, and the boss gets tougher. Windows and Mac can play together.</div>
       <div class="card"><b>Auto-updates</b><br>New versions download in the background and install on the title screen.</div>
     </div>
   </section>
 
   <section>
     <h2>HOW TO PLAY</h2>
+    <p><b>Windows</b></p>
     <ol>
       <li>Download <code>HellHonk.exe</code> and put it in its own folder.</li>
       <li>Run it. Windows may show <i>"Windows protected your PC"</i> because the exe isn't code-signed. Click <b>More info &rarr; Run anyway</b>.</li>
-      <li>Pick <b>START</b> on the title screen. Finished levels unlock in the level picker.</li>
     </ol>
+    <p><b>Mac</b> (Mac mini, MacBook, iMac)</p>
+    <ol>
+      <li>Download the zip for your Mac. It unzips to <code>HellHonk.app</code>.</li>
+      <li>Drag <code>HellHonk.app</code> into <b>Applications</b>. This step is required for auto-updates.</li>
+      <li>Open it. The first time, macOS will say it can't verify the app because it isn't from the App Store. Open
+        <b>System Settings &rarr; Privacy &amp; Security</b>, scroll down, and click <b>Open Anyway</b>. After that it opens normally.</li>
+    </ol>
+    <p>Pick <b>START</b> on the title screen. Finished levels unlock in the level picker, including levels you beat in co-op.</p>
     <table>
       <tr><td>WASD</td><td>move (hold Shift to walk)</td></tr>
       <tr><td>Mouse / arrows</td><td>turn</td></tr>
@@ -121,9 +131,9 @@
   <section>
     <h2>CO-OP WITH A FRIEND</h2>
     <ol>
-      <li>Both of you download the same version. The auto-updater keeps you matched.</li>
-      <li>The host picks a level, then <b>CO-OP: HOST GAME</b>. The screen shows the host's IP address. Allow it through Windows Firewall if asked.</li>
-      <li>The friend picks <b>CO-OP: JOIN GAME</b>, types that IP and presses Enter.</li>
+      <li>Everyone needs the same version. The auto-updater keeps you matched.</li>
+      <li>The host picks a level, then <b>CO-OP: HOST GAME</b>. The screen shows the host's IP address. Allow it through the firewall if asked.</li>
+      <li>Friends pick <b>CO-OP: JOIN GAME</b>, type that IP and press Enter. Up to 3 geese can play, and a late friend can join a level already in progress.</li>
     </ol>
     <p class="note">On the same Wi-Fi it just works. Across the internet, both install a free VPN like
       <a href="https://tailscale.com/">Tailscale</a>, Radmin VPN or ZeroTier and use the IP it gives the host.
