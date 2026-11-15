@@ -1338,25 +1338,265 @@ def weapon_view2(kind, frame):
     raise KeyError(kind)
 
 
+# ----------------------------------------------------------------- episodes 2 and 3
+def tex_concrete(seed=50):
+    n = noise(T, 8, 4, seed)
+    img = col((128, 126, 120))[None, None, :] * (0.7 + 0.45 * n)[..., None]
+    r = np.random.default_rng(seed)
+    for y in (0, 31, 32):
+        img[y, :] *= 0.6
+    for _ in range(5):          # water stains running down
+        x = r.integers(2, T - 2)
+        ln = r.integers(20, 60)
+        img[:ln, x:x + 3] *= 0.75
+    for _ in range(140):        # aggregate speckles
+        x, y = r.integers(0, T, 2)
+        img[y, x] *= 0.6
+    return finish(img)
+
+
+def tex_reeds(seed=51):
+    r = np.random.default_rng(seed)
+    img = np.zeros((T, T, 3)) + col((70, 80, 40))
+    for _ in range(46):
+        x = r.integers(0, T)
+        top = r.integers(0, 20)
+        c = col((110, 120, 55)) * (0.7 + 0.5 * r.random())
+        img[top:, x] = c
+        if x + 1 < T:
+            img[top:, x + 1] = c * 0.8
+        img[top:top + 6, x] = (120, 80, 45)          # cattail heads
+    img[T - 8:, :] *= 0.55                           # mud line
+    return finish(img)
+
+
+def tex_obsidian(seed=52):
+    n = noise(T, 16, 4, seed)
+    img = col((24, 18, 34))[None, None, :] * (0.6 + 0.8 * n)[..., None]
+    veins = np.abs(noise(T, 16, 2, seed + 1) - 0.5) < 0.022
+    img[veins] = (190, 90, 255)
+    for i in range(T):            # glassy diagonal sheen
+        img[i, (i * 2) % T] += 35
+    return finish(img)
+
+
+def tex_gold(seed=53):
+    n = noise(T, 8, 3, seed)
+    img = col((200, 160, 60))[None, None, :] * (0.7 + 0.4 * n)[..., None]
+    for p in range(0, T, 16):
+        img[p, :] = (120, 85, 25)
+        img[:, p] = (120, 85, 25)
+    yy, xx = np.ogrid[:T, :T]
+    for cx in (8, 24, 40, 56):    # little embossed feathers
+        for cy in (8, 24, 40, 56):
+            m = ((xx - cx) / 3.0) ** 2 + ((yy - cy) / 6.0) ** 2 < 1
+            img[m] = (255, 225, 120)
+    return finish(img)
+
+
+def flat_mud(seed=54):
+    n = noise(T, 16, 4, seed)
+    img = col((92, 70, 45))[None, None, :] * (0.6 + 0.6 * n)[..., None]
+    puddles = noise(T, 16, 2, seed + 1) > 0.68
+    img[puddles] = (60, 70, 62)
+    return finish(img)
+
+
+def flat_marble(seed=55):
+    n = noise(T, 16, 4, seed)
+    img = col((225, 220, 210))[None, None, :] * (0.85 + 0.15 * n)[..., None]
+    veins = np.abs(noise(T, 16, 3, seed + 1) - 0.5) < 0.018
+    img[veins] = (150, 140, 150)
+    for p in (0, 32):
+        img[p, :] = (170, 160, 150)
+        img[:, p] = (170, 160, 150)
+    return finish(img)
+
+
+def cormorant(pose, v=0):
+    """Cormorant Diver: sleek black fisher bird, fast lunges and spat fishbones."""
+    s = S(40, 56)
+    if pose.startswith("d"):
+        return dead_pile(s, (30, 34, 36), int(pose[1]))
+    step = {"walk0": 3, "walk1": -3}.get(pose, 0)
+    body = (30, 34, 36) if pose != "pain" else (110, 120, 120)
+    feet(s, 20, 55, 6, step, (40, 40, 40), 5)
+    if pose in ("aim", "fire"):
+        pygame.draw.polygon(s, (20, 22, 24), [(6, 34), (0, 16), (12, 30)])
+        pygame.draw.polygon(s, (20, 22, 24), [(34, 34), (40, 16), (28, 30)])
+    pygame.draw.ellipse(s, body, (8, 26, 24, 26))
+    pygame.draw.ellipse(s, (50, 70, 70), (12, 30, 16, 14))
+    sh = view_shift(v)
+    for i in range(9):
+        pygame.draw.circle(s, body, (int(20 + sh * i / 8), 28 - i * 2), 4)
+    hx, hy = 20 + sh, 10
+    pygame.draw.circle(s, body, (hx, hy), 6)
+    tip = bird_face(s, hx, hy, 6, v, (60, 230, 200), 2, (200, 170, 70), 9, open_=pose == "fire")
+    if pose == "fire" and tip:
+        pygame.draw.line(s, (240, 240, 230), tip, (tip[0] + 3, tip[1] + 3), 2)
+    return s
+
+
+def mallardking(pose, v=0):
+    """THE MALLARD KING: armoured drake in a spiked helm and cape, twin repeaters."""
+    s = S(112, 112)
+    if pose.startswith("d"):
+        st = int(pose[1])
+        dead_pile(s, (60, 110, 70), min(st, 2), wide=True)
+        if st == 0:
+            pygame.draw.circle(s, (255, 150, 30), (56, 60), 30)
+            pygame.draw.circle(s, (255, 235, 140), (56, 60), 16)
+        return s
+    step = {"walk0": 5, "walk1": -5}.get(pose, 0)
+    feet(s, 56, 111, 22, step, ORANGE, 12)
+    cape = (150, 20, 30)
+    if v >= 3:
+        pygame.draw.polygon(s, cape, [(18, 40), (94, 40), (104, 104), (8, 104)])
+    pygame.draw.ellipse(s, (150, 150, 140), (14, 42, 84, 62))
+    if v < 3:
+        pygame.draw.ellipse(s, (130, 70, 50), (30 + view_shift(v) * 2, 44, 52, 30))
+        pygame.draw.rect(s, (240, 240, 240), (32 + view_shift(v) * 2, 40, 48, 5))
+        pygame.draw.polygon(s, cape, [(14, 44), (24, 44), (18, 98), (6, 100)])
+        pygame.draw.polygon(s, cape, [(88, 44), (98, 44), (106, 100), (94, 98)])
+    hx, hy = 56 + view_shift(v) * 3, 28
+    pygame.draw.circle(s, (20, 110, 50), (hx, hy), 19)
+    pygame.draw.circle(s, (70, 170, 100), (hx - 6, hy - 7), 5)
+    pygame.draw.rect(s, (90, 92, 100), (hx - 20, hy - 22, 40, 12))       # iron helm band
+    for sx in (-16, -6, 4, 14):
+        pygame.draw.polygon(s, (170, 172, 180), [(hx + sx, hy - 22), (hx + sx + 2, hy - 36), (hx + sx + 4, hy - 22)])
+    tip = bird_face(s, hx, hy, 19, v, (255, 60, 30), 4, (230, 190, 40), 14, open_=pose == "atk1",
+                    brow=(10, 30, 10))
+    gy = 74 if pose not in ("atk0", "atk1") else 68
+    if v == 0:
+        for gx in (30, 82):
+            pygame.draw.circle(s, (70, 70, 76), (gx, gy), 9)
+            pygame.draw.circle(s, (20, 20, 22), (gx, gy), 4)
+            if pose == "atk1":
+                pygame.draw.circle(s, (255, 240, 150), (gx, gy), 9)
+    elif v < 3:
+        L = 34 if v == 2 else 24
+        pygame.draw.rect(s, (70, 70, 76), (56, gy - 5, L, 10))
+        if pose == "atk1":
+            pygame.draw.circle(s, (255, 240, 150), (56 + L + 4, gy), 8)
+    if pose == "atk1" and tip:
+        pygame.draw.circle(s, (255, 200, 60), tip, 5)
+    return s
+
+
+def owl(pose, v=0):
+    """Owl Sentinel: blinks around and fires homing hoots."""
+    s = S(44, 52)
+    if pose.startswith("d"):
+        return dead_pile(s, (120, 95, 70), int(pose[1]))
+    step = {"walk0": 2, "walk1": -2}.get(pose, 0)
+    body = (120, 95, 70) if pose != "pain" else (210, 190, 170)
+    feet(s, 22, 51, 6, step, (200, 170, 60), 4)
+    pygame.draw.ellipse(s, body, (6, 14, 32, 36))
+    if pose in ("wind", "fire"):
+        pygame.draw.polygon(s, (90, 70, 50), [(8, 26), (0, 8), (14, 22)])
+        pygame.draw.polygon(s, (90, 70, 50), [(36, 26), (44, 8), (30, 22)])
+    for i in range(4):          # chest chevrons / back bars
+        y = 28 + i * 5
+        if v < 3:
+            pygame.draw.line(s, (80, 60, 40), (16 + view_shift(v), y), (22 + view_shift(v), y + 2), 2)
+            pygame.draw.line(s, (80, 60, 40), (28 + view_shift(v), y), (22 + view_shift(v), y + 2), 2)
+        else:
+            pygame.draw.line(s, (80, 60, 40), (12, y), (32, y), 2)
+    hx, hy = 22 + view_shift(v), 14
+    pygame.draw.circle(s, body, (hx, hy), 11)
+    pygame.draw.polygon(s, (90, 70, 50), [(hx - 10, hy - 6), (hx - 8, hy - 15), (hx - 4, hy - 8)])
+    pygame.draw.polygon(s, (90, 70, 50), [(hx + 10, hy - 6), (hx + 8, hy - 15), (hx + 4, hy - 8)])
+    if v < 3:   # big disc eyes
+        ex = [hx - 5, hx + 5] if v == 0 else ([hx - 1, hx + 7] if v == 1 else [hx + 5])
+        glow = (200, 120, 255) if pose in ("wind", "fire") else (255, 200, 40)
+        for x in ex:
+            pygame.draw.circle(s, (240, 230, 200), (x, hy - 1), 4)
+            pygame.draw.circle(s, glow, (x, hy - 1), 2)
+    bird_face(s, hx, hy + 2, 11, v, (0, 0, 0), 0, (200, 170, 60), 4)
+    if pose == "fire":
+        pygame.draw.circle(s, (190, 110, 255), (hx, hy + 12), 6, 2)
+    return s
+
+
+def greatgander(pose, v=0):
+    """THE GREAT GANDER: the final boss, a giant ash-winged goose full of stars."""
+    s = S(128, 128)
+    if pose.startswith("d"):
+        st = int(pose[1])
+        dead_pile(s, (60, 50, 80), min(st, 2), wide=True)
+        if st == 0:
+            pygame.draw.circle(s, (190, 110, 255), (64, 70), 40)
+            pygame.draw.circle(s, (255, 255, 255), (64, 70), 20)
+        return s
+    step = {"walk0": 6, "walk1": -6}.get(pose, 0)
+    body = (52, 44, 70) if pose != "pain" else (150, 120, 190)
+    feet(s, 64, 127, 26, step, (200, 120, 255), 13)
+    wing = (36, 30, 52)
+    up = pose in ("atk0", "atk1")
+    pygame.draw.polygon(s, wing, [(30, 70), (0, 8 if up else 40), (8, 90)])
+    pygame.draw.polygon(s, wing, [(98, 70), (127, 8 if up else 40), (120, 90)])
+    pygame.draw.ellipse(s, body, (16, 50, 96, 72))
+    r = np.random.default_rng(7)
+    for _ in range(26):                                     # stars in the plumage
+        x, y = r.integers(24, 104), r.integers(56, 116)
+        pygame.draw.circle(s, (255, 250, 220), (int(x), int(y)), 1)
+    sh = view_shift(v) * 3
+    for i in range(12):
+        pygame.draw.circle(s, body, (int(64 + sh * i / 11), 58 - i * 3), 9)
+    hx, hy = 64 + sh, 22
+    pygame.draw.circle(s, body, (hx, hy), 18)
+    for dx in (-10, 0, 10):                                 # three-pronged crest
+        pygame.draw.polygon(s, (200, 120, 255), [(hx + dx - 3, hy - 14), (hx + dx, hy - 34), (hx + dx + 3, hy - 14)])
+    tip = bird_face(s, hx, hy, 18, v, (255, 255, 255), 4, (170, 90, 230), 16, open_=pose == "atk1",
+                    brow=(20, 0, 40))
+    if pose == "atk1" and tip:
+        pygame.draw.circle(s, (220, 160, 255), tip, 8)
+        pygame.draw.circle(s, (255, 255, 255), tip, 4)
+    return s
+
+
+def fx3(kind, frame):
+    if kind == "fishbone":
+        s = S(14, 8)
+        pygame.draw.line(s, (240, 240, 230), (1, 4), (13, 4), 2)
+        for x in (4, 7, 10):
+            pygame.draw.line(s, (240, 240, 230), (x, 1 + frame), (x, 7 - frame), 1)
+        return s
+    if kind == "hoot":
+        s = S(18, 18)
+        pygame.draw.circle(s, (190, 110, 255), (9, 9), 8 - frame, 2)
+        pygame.draw.circle(s, (240, 220, 255), (9, 9), 3 + frame)
+        return s
+    if kind == "voidring":
+        s = S(40, 40)
+        pygame.draw.circle(s, (150, 70, 230), (20, 20), 18 - frame * 2, 5)
+        pygame.draw.circle(s, (255, 255, 255), (20, 20), 6 + frame * 2, 2)
+        return s
+    raise KeyError(kind)
+
+
 # ----------------------------------------------------------------- bundle
 class Assets:
     # wall texture ids
     (BRICK, HEDGE, WOOD, METAL, GLASS, DOOR, YDOOR, BDOOR, SWOFF, SWON, CRACK, HEDGEX, HELL,
-     SEWER, FACTORY, ICE, CASTLE, NEST, RDOOR) = range(19)
-    CRACKABLE = (BRICK, HEDGE, WOOD, METAL, GLASS, HELL, SEWER, FACTORY, ICE, CASTLE, NEST)
+     SEWER, FACTORY, ICE, CASTLE, NEST, RDOOR, CONCRETE, REEDS, OBSIDIAN, GOLD) = range(23)
+    NUM_WALLS = 23
+    CRACKABLE = (BRICK, HEDGE, WOOD, METAL, GLASS, HELL, SEWER, FACTORY, ICE, CASTLE, NEST,
+                 CONCRETE, REEDS, OBSIDIAN, GOLD)
     # flat ids
     GRASS, TILES, WOODF, METALF, BEAMS, LIGHTS, STONEF, SNOW, TELE, FACTF, PIPES, ASH = range(12)
     SLUDGE_FRAMES = 4
     SLUDGE = 12
     LAVA = 16
+    MUD, MARBLE = 20, 21
 
     @classmethod
     def crack(cls, base):
         """Texture id of a 'cracked' look-alike of a wall (for secret doors)."""
-        return 19 + cls.CRACKABLE.index(base)
+        return cls.NUM_WALLS + cls.CRACKABLE.index(base)
 
     def __init__(self, view_h):
-        walls = [None] * 19
+        walls = [None] * self.NUM_WALLS
         walls[self.BRICK] = tex_brick()
         walls[self.HEDGE] = tex_hedge()
         walls[self.WOOD] = tex_wood()
@@ -1376,6 +1616,10 @@ class Assets:
         walls[self.CASTLE] = tex_castle()
         walls[self.NEST] = tex_nest()
         walls[self.RDOOR] = tex_door(18, (230, 40, 40))
+        walls[self.CONCRETE] = tex_concrete()
+        walls[self.REEDS] = tex_reeds()
+        walls[self.OBSIDIAN] = tex_obsidian()
+        walls[self.GOLD] = tex_gold()
         for i, b in enumerate(self.CRACKABLE):
             walls.append(crack_variant(walls[b], 100 + i))
         self.walls = np.stack(walls)
@@ -1383,6 +1627,7 @@ class Assets:
                  flat_stone(), flat_snow(), flat_tele(), flat_factory(), flat_pipes(), flat_ash()]
         flats += flat_sludge_frames(frames=self.SLUDGE_FRAMES)
         flats += flat_lava_frames(frames=4)
+        flats += [flat_mud(), flat_marble()]
         self.flats = np.stack(flats)
         self.sky = make_sky(512, view_h)
         self.skies = {
@@ -1390,6 +1635,8 @@ class Assets:
             "night": make_sky_pal(512, view_h, (8, 12, 40), (60, 80, 140), (30, 40, 80), (10, 14, 30), 21, stars=True),
             "fire": make_sky_pal(512, view_h, (30, 0, 0), (255, 110, 20), (80, 10, 0), (20, 4, 4), 22),
             "dusk": make_sky_pal(512, view_h, (40, 20, 60), (230, 120, 70), (90, 40, 80), (25, 12, 20), 23),
+            "storm": make_sky_pal(512, view_h, (34, 40, 44), (120, 130, 120), (70, 80, 80), (20, 26, 24), 24),
+            "void": make_sky_pal(512, view_h, (6, 0, 16), (90, 30, 120), (40, 10, 70), (12, 4, 20), 25, stars=True),
         }
 
         def dirframes(fn, poses):
@@ -1416,6 +1663,10 @@ class Assets:
             "gosling": dirframes(gosling, ["walk0", "walk1", "bite0", "bite1", "pain", "d0", "d1", "d2"]),
             "heron": dirframes(heron, ["walk0", "walk1", "wind", "fire", "pain", "d0", "d1", "d2"]),
             "honkmother": dirframes(honkmother, ["walk0", "walk1", "atk0", "atk1", "pain", "d0", "d1", "d2"]),
+            "cormorant": dirframes(cormorant, ["walk0", "walk1", "aim", "fire", "pain", "d0", "d1", "d2"]),
+            "mallardking": dirframes(mallardking, ["walk0", "walk1", "atk0", "atk1", "pain", "d0", "d1", "d2"]),
+            "owl": dirframes(owl, ["walk0", "walk1", "wind", "fire", "pain", "d0", "d1", "d2"]),
+            "greatgander": dirframes(greatgander, ["walk0", "walk1", "atk0", "atk1", "pain", "d0", "d1", "d2"]),
         }
         for i in range(len(VEST_COLORS)):
             g = {}
@@ -1436,6 +1687,8 @@ class Assets:
             self.sprites[k] = {"0": surf_arr(decor(k, 0)), "1": surf_arr(decor(k, 1))}
         for k, n in (("puff", 3), ("blood", 3), ("fireball", 2), ("boom", 3), ("flash", 1)):
             self.sprites[k] = {str(i): surf_arr(fx(k, i)) for i in range(n)}
+        for k, n in (("fishbone", 2), ("hoot", 2), ("voidring", 2)):
+            self.sprites[k] = {str(i): surf_arr(fx3(k, i)) for i in range(n)}
         for k, n in (("eggbomb", 2), ("icebolt", 2), ("rocket", 2), ("megaring", 2), ("megaboom", 3), ("telefog", 3)):
             self.sprites[k] = {str(i): surf_arr(fx2(k, i)) for i in range(n)}
         self.weapons = {

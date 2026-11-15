@@ -141,6 +141,14 @@ def build_sfx():
     s["teleport"] = norm(mix(sweep(200, 1600, 0.5, 3) * 0.5, noise_burst(0.5, 1500, 8000, 5) * 0.5))
     s["powerup"] = norm(mix(*[np.pad(honk(f, 0.16, glide=0.3), (int(SR * 0.08 * i), 0)) for i, f in
                               enumerate((392, 523, 659, 784, 1047))]))
+    # episodes 2 and 3
+    s["corm_sight"] = norm(mix(honk(200, 0.35, glide=-4, buzz=0.8, bright=0.7), noise_burst(0.35, 1500, 6000, 6) * 0.3))
+    s["corm_spit"] = norm(mix(noise_burst(0.12, 800, 5000, 25), sweep(700, 300, 0.1, 20) * 0.5))
+    s["hoot"] = norm(mix(*[np.pad(sweep(f, f * 0.92, 0.22, 5), (int(SR * 0.26 * i), 0)) for i, f in enumerate((420, 380))]))
+    s["king_sight"] = norm(mix(honk(110, 1.4, glide=3, buzz=0.9, bright=0.7), honk(165, 1.4, glide=3, buzz=0.5) * 0.6,
+                               noise_burst(1.4, 30, 500, 1.6) * 0.5))
+    s["gander_sight"] = norm(mix(honk(70, 2.0, glide=5, buzz=0.6, bright=0.5), sweep(900, 200, 2.0, 1.2) * 0.4,
+                                 noise_burst(2.0, 20, 300, 1.0) * 0.6))
     return s
 
 
@@ -254,6 +262,18 @@ SONGS = [
     dict(seed=13, bpm=132, root=50, mode="dorian", feel="chug"),                       # frozen
     dict(seed=14, bpm=144, root=46, mode="harm", feel="chug"),                         # nesting
     dict(seed=15, bpm=178, root=45, mode="phrygian", feel="gallop", lead_density=0.85),  # boss
+    # episode 2: DOWNSTREAM
+    dict(seed=21, bpm=138, root=48, mode="minor", feel="chug"),                        # river docks
+    dict(seed=22, bpm=150, root=50, mode="dorian", feel="gallop"),                     # canal street
+    dict(seed=23, bpm=118, root=45, mode="phrygian", feel="doom", lead_density=0.55),  # waterworks
+    dict(seed=24, bpm=126, root=47, mode="dorian", feel="doom", lead_density=0.6),     # mudflat marsh
+    dict(seed=25, bpm=172, root=48, mode="harm", feel="gallop", lead_density=0.85),    # mallard king
+    # episode 3: THE ROOST OF ASH
+    dict(seed=31, bpm=146, root=46, mode="harm", feel="chug"),                         # obsidian stair
+    dict(seed=32, bpm=134, root=49, mode="minor", feel="chug", lead_density=0.8),      # feather vault
+    dict(seed=33, bpm=112, root=44, mode="phrygian", feel="doom", lead_density=0.5),   # owlwood
+    dict(seed=34, bpm=158, root=45, mode="harm", feel="gallop"),                       # hatching dark
+    dict(seed=35, bpm=184, root=43, mode="phrygian", feel="gallop", lead_density=0.9), # great gander
 ]
 
 

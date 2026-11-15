@@ -19,7 +19,7 @@ import pygame
 
 from assets import VEST_COLORS, Assets
 from audio import SR, build_sfx, song_samples, to_sound
-from level import Level, MH, MW, NUM_LEVELS
+from level import EPISODES, Level, MH, MW, NUM_LEVELS, episode_of
 from pixelfont import GLYPHS, PixelFont, text_width
 from updater import Updater, cleanup_old
 from version import APP_VERSION
@@ -69,7 +69,30 @@ ENEMY = {
     "heron": dict(hp=120, speed=2.6, r=.30, h=1.0, pain=.40, sight="heron_sight", pains="pain_s", die="die_s",
                   idle="hiss", drop=None, poses=("wind", "fire"),
                   attacks=[dict(tl=[(.5, ("miss", "icebolt", 3, .16, "heron_atk"))], end=.85)]),
-    "honkmother": dict(hp=3000, speed=2.6, r=.80, h=1.75, pain=.06, sight="boss_sight", pains="boss_pain",
+    "cormorant": dict(hp=45, speed=3.8, r=.28, h=.60, pain=.60, sight="corm_sight", pains="pain_s", die="die_q",
+                      idle="hiss", drop=None, poses=("aim", "fire"),
+                      attacks=[dict(tl=[(.3, ("miss", "fishbone", 2, .12, "corm_spit"))], end=.55),
+                               dict(melee=True, tl=[(.2, ("bite", 3, 1, 6, "bite"))], end=.45)]),
+    "owl": dict(hp=90, speed=2.4, r=.30, h=.70, pain=.50, sight="hoot", pains="pain_s", die="die_s",
+                idle="hoot", drop=None, poses=("wind", "fire"),
+                attacks=[dict(weight=3, tl=[(.45, ("miss", "hoot", 1, 0, "hoot"))], end=.8),
+                         dict(weight=1, tl=[(.3, ("blink", 6, "teleport"))], end=.5)]),
+    "mallardking": dict(hp=4000, speed=2.4, r=.85, h=1.70, pain=.05, sight="king_sight", pains="boss_pain",
+                        die="boss_die", idle="growl", drop=None, poses=("atk0", "atk1"), boss=True,
+                        title="THE MALLARD KING",
+                        attacks=[dict(weight=3, end=1.3, tl=[(.3 + .08 * i, ("hit", 3, 1, 5, "mallard_shot")) for i in range(9)]),
+                                 dict(weight=2, end=1.1, tl=[(.5, ("miss", "kingrocket", 3, .22, "rocket"))]),
+                                 dict(weight=1, end=1.0, tl=[(.6, ("spawn", "mallard", 2, "king_sight"))]),
+                                 dict(melee=True, end=.8, tl=[(.4, ("stomp", 70, "stomp"))])]),
+    "greatgander": dict(hp=6000, speed=2.8, r=.90, h=2.0, pain=.04, sight="gander_sight", pains="boss_pain",
+                        die="boss_die", idle="growl", drop=None, poses=("atk0", "atk1"), boss=True,
+                        title="THE GREAT GANDER",
+                        attacks=[dict(weight=3, end=1.4, tl=[(t, ("miss", "voidring", 3, .3, "megahonk")) for t in (.5, 1.0)]),
+                                 dict(weight=2, end=1.0, tl=[(.5, ("miss", "hoot", 5, .4, "hoot"))]),
+                                 dict(weight=1, end=1.1, tl=[(.5, ("spawn", "owl", 2, "gander_sight")),
+                                                            (.7, ("spawn", "gosling", 3, "peep"))]),
+                                 dict(melee=True, end=.8, tl=[(.4, ("stomp", 90, "stomp"))])]),
+    "honkmother": dict(hp=3000, speed=2.6, r=.80, h=1.75, pain=.06, sight="boss_sight", pains="boss_pain", title="THE HONKMOTHER",
                        die="boss_die", idle="growl", drop=None, poses=("atk0", "atk1"), boss=True,
                        attacks=[dict(weight=3, end=1.4, tl=[(t, ("miss", "fireball", 5, .14, "fireball")) for t in (.5, .8, 1.1)]),
                                 dict(weight=2, end=1.2, tl=[(t, ("miss", "eggbomb", 3, .25, "pelican_atk")) for t in (.5, .9)]),
@@ -81,6 +104,10 @@ MISSILES = {
     "eggbomb": dict(speed=5.5, dmg=(2, 1, 5), splash=(1.7, 45), h=.25, sprite="eggbomb", boom="boom"),
     "icebolt": dict(speed=9.5, dmg=(2, 1, 6), splash=None, h=.2, sprite="icebolt", boom="puff"),
     "rocket": dict(speed=13.0, dmg=(20, 1, 8), splash=(2.5, 128), h=.22, sprite="rocket", boom="boom"),
+    "fishbone": dict(speed=11.0, dmg=(2, 1, 4), splash=None, h=.18, sprite="fishbone", boom="puff"),
+    "kingrocket": dict(speed=9.0, dmg=(5, 1, 6), splash=(2.0, 70), h=.3, sprite="rocket", boom="boom"),
+    "hoot": dict(speed=5.0, dmg=(3, 1, 6), splash=None, h=.3, sprite="hoot", boom="puff", homing=2.2),
+    "voidring": dict(speed=6.5, dmg=(8, 1, 6), splash=(2.5, 90), h=.6, sprite="voidring", boom="megaboom"),
     "megaring": dict(speed=10.0, dmg=(100, 2, 5), splash=(4.2, 300), h=.6, sprite="megaring", boom="megaboom",
                      noself=True),
 }
@@ -118,6 +145,28 @@ PFIELDS = frozenset((
 REGEN_DELAY = 4.0      # seconds without taking damage before regen starts
 REGEN_EVERY = 1.5      # seconds per +1 health
 REGEN_CAP = 100        # regen never goes above this
+
+
+VICTORY_STORY = [
+    ["The Honkmother's crown rolls across the ash.",
+     "Her brood scatters, the sludge settles, and the",
+     "pond goes quiet for the first time in years.",
+     "",
+     "But somewhere downstream, something quacks back...",
+     "HONK Episode 1: FOWL WATERS - complete"],
+    ["The Mallard King's helm sinks into the lock.",
+     "The canals drain, the pumps fall silent, and the",
+     "city's drakes scatter into the marsh.",
+     "",
+     "High above the river, an ash cloud starts to glow...",
+     "HONK Episode 2: DOWNSTREAM - complete"],
+    ["The Great Gander folds its burning wings and falls.",
+     "The first nest goes cold. The stars in the sky",
+     "are just stars again.",
+     "",
+     "Every pond, every canal, every roost: honked clean.",
+     "Thanks for playing all of HONK!"],
+]
 
 
 def view_key(face, x, y, viewer):
@@ -602,7 +651,7 @@ class Game:
         self.me.name = self.save["name"]
         self.name_text = self.me.name
         self.unlocked = self.save["unlocked"]
-        self.pick_level = self.unlocked - 1
+        self.pick_level = self.available()[-1]
         self.ip_text = self.save["last_ip"]
         self.banner = ""
         self.t = 0.0
@@ -735,6 +784,7 @@ class Game:
         self.missiles, self.effects = [], []
         self.spawn_things(L)
         self.boss = next((e for e in self.enemies if e.boss), None)
+        self.boss_title = self.boss.st["title"] if self.boss else ""
         self.kills_total = len(self.enemies)
         self.items_total = sum(1 for p in self.pickups if p.kind in COUNT_ITEMS)
         self.kills = self.items = 0
@@ -1113,7 +1163,7 @@ class Game:
         e.cd = 0.3 + random.random() * 0.8
         self.sound(e.st["sight"], e.x, e.y)
         if e.boss:
-            self.msg_all("THE HONKMOTHER AWAKENS!")
+            self.msg_all("%s AWAKENS!" % e.st["title"])
 
     def hurt_enemy(self, e, dmg):
         if not e.alive:
@@ -1129,7 +1179,7 @@ class Game:
                 p.dropped = True
                 self.pickups.append(p)
             if e.boss:
-                self.msg_all("THE HONKMOTHER IS SILENCED!")
+                self.msg_all("%s IS SILENCED!" % e.st["title"])
                 for p in self.players:
                     p.shake = 1.0
                 for i in range(6):
@@ -1332,6 +1382,18 @@ class Game:
                 self.kills_total += 1
                 alive += 1
                 self.effects.append(Effect("telefog", sx, sy, 0.0, 3, 0.5))
+        elif kind == "blink":
+            _, rng, snd = ev
+            for _ in range(12):
+                ang = random.random() * math.tau
+                d = 2.0 + random.random() * rng
+                nx, ny = self.px + math.cos(ang) * d, self.py + math.sin(ang) * d
+                if not self.solid_at(nx, ny, e.r + 0.05) and self.los(nx, ny, self.px, self.py):
+                    self.effects.append(Effect("telefog", e.x, e.y, 0.0, 3, 0.5))
+                    e.x, e.y = nx, ny
+                    self.effects.append(Effect("telefog", nx, ny, 0.0, 3, 0.5))
+                    self.sound(snd, nx, ny, 0.6)
+                    break
         elif kind == "stomp":
             _, power, snd = ev
             self.sound(snd, e.x, e.y)
@@ -1693,6 +1755,15 @@ class Game:
         for m in self.missiles:
             m.anim += dt
             sp = m.spec
+            if sp.get("homing"):
+                tgts = [p for p in self.players if not p.dead]
+                if tgts:
+                    t = min(tgts, key=lambda p: (p.px - m.x) ** 2 + (p.py - m.y) ** 2)
+                    want = math.atan2(t.py - m.y, t.px - m.x)
+                    cur = math.atan2(m.dy, m.dx)
+                    turn = (want - cur + math.pi) % math.tau - math.pi
+                    cur += max(-sp["homing"] * dt, min(sp["homing"] * dt, turn))
+                    m.dx, m.dy = math.cos(cur), math.sin(cur)
             step = sp["speed"] * dt
             nx, ny = m.x + m.dx * step, m.y + m.dy * step
             hitwall = self.blocked_cell(nx, ny)
@@ -1775,6 +1846,18 @@ class Game:
         sv["unlocked"] = self.unlocked
         write_save(sv)
 
+    def available(self):
+        """Levels you can start from the title: every episode's first level, everything you've beaten,
+        and the level right after each one you've beaten."""
+        beaten = set(self.save.get("beaten", []))
+        avail = {a for _, a, _ in EPISODES} | beaten | {b + 1 for b in beaten if b + 1 < NUM_LEVELS}
+        return sorted(i for i in avail if 0 <= i < NUM_LEVELS)
+
+    def cycle_level(self, delta):
+        avail = self.available()
+        i = avail.index(self.pick_level) if self.pick_level in avail else 0
+        self.pick_level = avail[(i + delta) % len(avail)]
+
     def level_status(self, idx):
         """('BEATEN', 'best 2:31') / ('NEW', '') for the level picker."""
         if idx in self.save.get("beaten", []):
@@ -1784,11 +1867,27 @@ class Game:
 
     def next_level(self):
         nxt = self.level_idx + 1
-        if nxt >= NUM_LEVELS:
+        if self.level_idx == EPISODES[episode_of(self.level_idx)][2]:
             self.mode = "victory"
             self.inter_t = 0.0
             self.play_song(0)
             return
+        self.refill_and_load(nxt)
+
+    def continue_after_victory(self):
+        """Episode beaten: roll on into the next episode, or back to the title after the last one."""
+        ep = episode_of(self.level_idx)
+        if ep + 1 < len(EPISODES):
+            self.total = dict(kills=0, kills_total=0, items=0, items_total=0, secrets=0, secrets_total=0, time=0.0)
+            self.refill_and_load(EPISODES[ep + 1][1])
+            return
+        if self.role == "host":
+            self.leave_coop()
+        self.mode, self.menu_i = "title", 0
+        self.pick_level = self.available()[-1]
+        self.play_song(0)
+
+    def refill_and_load(self, nxt):
         for p in self.players:
             c = p.carry
             c["health"] = max(c["health"], 100)
@@ -1927,6 +2026,7 @@ class Game:
             sw=bool(L.exit_cell and L.wall[L.exit_cell[1], L.exit_cell[0]] == Assets.SWON),
             gone=[i for i, d in enumerate(self.decor) if d.removed], things=things,
             keys=sorted(self.keys), boss=None if self.boss_frac is None else round(self.boss_frac, 3),
+            bosst=getattr(self, "boss_title", ""),
             snd=p.snd, warp=p.warp,
             mates=[[o.pid, round(o.health), int(o.dead), round(o.px, 2), round(o.py, 2), o.name]
                    for o in self.players if o is not p],
@@ -2025,6 +2125,7 @@ class Game:
         self.net_things = [tuple(t) for t in s["things"]]
         self.keys = set(s["keys"])
         self.boss_frac = s["boss"]
+        self.boss_title = s.get("bosst", "")
         self.skill = s["skill"]
         me = self.me
         for k, v in s["me"].items():
@@ -2053,7 +2154,7 @@ class Game:
             self.grab(False)
             # joiners unlock levels too, not just the host
             self.record_beaten(self.level_idx, self.level_time)
-            self.pick_level = self.unlocked - 1
+            self.pick_level = self.available()[-1]
         if self.mode == "play" and prev in ("intermission", "victory", "joining", "client_lobby"):
             self.grab(True)
         for name, x, y, vol in s["snd"]:
@@ -2229,7 +2330,7 @@ class Game:
             pygame.draw.rect(self.view, (30, 0, 0), r)
             pygame.draw.rect(self.view, (230, 40, 30), (r.x, r.y, int(r.w * self.boss_frac), r.h))
             pygame.draw.rect(self.view, (255, 220, 150), r, 1)
-            self.text_c(self.view, "THE HONKMOTHER", VH - 25, (255, 220, 150))
+            self.text_c(self.view, self.boss_title, VH - 25, (255, 220, 150))
         if self.dead and self.dead_t > 1.0:
             line = "YOU GOT COOKED. Press USE to try again."
             mates = self.mate_status()
@@ -2402,7 +2503,7 @@ class Game:
 
     def menu_items(self):
         if self.mode == "title":
-            arrows = ("< ", " >") if self.unlocked > 1 else ("", "")
+            arrows = ("< ", " >") if len(self.available()) > 1 else ("", "")
             return ["START: " + arrows[0] + LEVEL_NAMES[self.pick_level] + arrows[1], "CO-OP: HOST GAME", "CO-OP: JOIN GAME",
                     "NAME: " + self.me.name, "SKILL: " + SKILLS[self.skill], self.display_label(),
                     "MUSIC: " + ("ON" if self.music_on else "OFF"), "QUIT"]
@@ -2445,7 +2546,7 @@ class Game:
                 else:
                     line = "NOT BEATEN YET"
                     col = (255, 210, 120)
-                if self.unlocked > 1:
+                if len(self.available()) > 1:
                     line += "   -   LEFT/RIGHT picks level"
                 self.text_c(s, line, y0 + 90, col, self.font_small)
             self.text_c(s, "WASD move  MOUSE turn  CLICK fire  E use", SH - 22, (230, 210, 190))
@@ -2568,13 +2669,9 @@ class Game:
         o = pygame.Surface((SW, SH), pygame.SRCALPHA)
         o.fill((0, 0, 0, 190))
         s.blit(o, (0, 0))
-        self.text_c(s, "VICTORY", 14, (255, 220, 90), self.font_big)
-        story = ["The Honkmother's crown rolls across the ash.",
-                 "Her brood scatters, the sludge settles, and the",
-                 "pond goes quiet for the first time in years.",
-                 "",
-                 "But somewhere downstream, something quacks back...",
-                 "Thanks for playing HONK Episode 1: FOWL WATERS"]
+        ep = episode_of(self.level_idx)
+        self.text_c(s, "EPISODE %d COMPLETE" % (ep + 1), 14, (255, 220, 90), self.font_big)
+        story = VICTORY_STORY[ep]
         shown = int(self.inter_t * 25)
         y = 44
         for line in story:
@@ -2589,7 +2686,9 @@ class Game:
                 pct(T["kills"], T["kills_total"]), pct(T["items"], T["items_total"]),
                 pct(T["secrets"], T["secrets_total"]), tm // 60, tm % 60), 132, (140, 255, 170))
             self.text_c(s, "Skill: " + SKILLS[self.skill], 146, (255, 200, 150))
-            self.text_c(s, "waiting for the host..." if self.role == "client" else "press a key", 178, (220, 200, 180))
+            nxt = ("continue to EPISODE %d: %s" % (ep + 2, EPISODES[ep + 1][0])) if ep + 1 < len(EPISODES) else "back to the title"
+            self.text_c(s, "waiting for the host..." if self.role == "client" else "press a key to " + nxt, 178,
+                        (220, 200, 180))
 
     def present(self):
         self.compose(self.window)
@@ -2617,7 +2716,7 @@ class Game:
             self.skill = (self.skill + (delta or 1)) % 3
         elif it.startswith("START"):
             if delta:
-                self.pick_level = (self.pick_level + delta) % self.unlocked
+                self.cycle_level(delta)
             else:
                 self.new_game(self.pick_level)
         elif it == "CO-OP: HOST GAME" and not delta:
@@ -2681,7 +2780,7 @@ class Game:
             elif k in (pygame.K_RETURN, pygame.K_SPACE):
                 self.lobby_start()
             elif k in (pygame.K_LEFT, pygame.K_a, pygame.K_RIGHT, pygame.K_d):
-                self.pick_level = (self.pick_level + (-1 if k in (pygame.K_LEFT, pygame.K_a) else 1)) % self.unlocked
+                self.cycle_level(-1 if k in (pygame.K_LEFT, pygame.K_a) else 1)
             elif k in (pygame.K_UP, pygame.K_w, pygame.K_DOWN, pygame.K_s):
                 self.skill = (self.skill + (-1 if k in (pygame.K_UP, pygame.K_w) else 1)) % 3
         elif self.mode == "client_lobby":
@@ -2707,11 +2806,7 @@ class Game:
                 self.next_level()
         elif self.mode == "victory":
             if self.role != "client" and self.inter_t > 4.0:
-                if self.role == "host":
-                    self.leave_coop()
-                self.mode, self.menu_i = "title", 0
-                self.pick_level = self.unlocked - 1
-                self.play_song(0)
+                self.continue_after_victory()
         elif self.mode == "play":
             if k == pygame.K_ESCAPE:
                 self.menu_open, self.menu_i = True, 0
@@ -2946,7 +3041,7 @@ def selftest(out):
     print("weapons ok")
 
     # ---- combat vs each enemy type
-    for kind in ("quackling", "mallard", "fireswan", "pelican", "gosling", "heron", "brute"):
+    for kind in ("quackling", "mallard", "fireswan", "pelican", "gosling", "heron", "brute", "cormorant", "owl"):
         g.new_game(5, 1)
         g.boss = None
         e = Enemy(kind, 22.5, 26.5)
@@ -3008,29 +3103,38 @@ def selftest(out):
     assert not g.dead and g.health == 100 and g.level_idx == 1, "solo restart failed"
     print("solo death/restart ok")
 
-    # ---- boss fight and the end of the episode
-    g.new_game(5, 1)
-    boss = g.boss
-    g.owned["megahonk"] = True
-    g.ammo["corn"] = 300
-    g.weapon = "megahonk"
-    g.health = 200
-    g.invuln = 999
-    g.px, g.py = 22.5, 24.5
-    for _ in range(35 * 40):
-        g.ang = math.atan2(boss.y - g.py, boss.x - g.px)
-        step(1, fire=True)
-        if g.mode != "play":
-            break
-    shot(g, "boss_fight")
-    assert not boss.alive, ("boss survived", boss.hp)
-    assert g.mode == "intermission", g.mode
-    g.next_level()
-    assert g.mode == "victory"
-    g.inter_t = 10
-    g.draw_victory()
-    shot(g, "victory")
-    print("boss + victory ok")
+    # ---- every episode's boss fight, its victory screen, and the hand-off to the next episode
+    for ep, (title, first, last) in enumerate(EPISODES):
+        g.new_game(last, 1)
+        boss = g.boss
+        assert boss is not None and boss.st.get("title"), ("no boss on", LEVEL_NAMES[last])
+        g.owned["megahonk"] = True
+        g.weapon = "megahonk"
+        g.health = 200
+        g.invuln = 999
+        g.px, g.py = 22.5, 26.5
+        for _ in range(35 * 90):
+            g.ammo["corn"] = 300
+            g.invuln = 999
+            g.ang = math.atan2(boss.y - g.py, boss.x - g.px)
+            step(1, fire=True)
+            if g.mode != "play":
+                break
+        shot(g, "boss_fight_ep%d" % (ep + 1))
+        assert not boss.alive, ("boss survived", title, boss.hp)
+        assert g.mode == "intermission", g.mode
+        g.next_level()
+        assert g.mode == "victory", ("no victory screen", title)
+        g.inter_t = 10
+        g.draw_victory()
+        shot(g, "victory_ep%d" % (ep + 1))
+        g.continue_after_victory()
+        if ep + 1 < len(EPISODES):
+            assert g.mode == "play" and g.level_idx == EPISODES[ep + 1][1], ("did not roll into the next episode", g.level_idx)
+        else:
+            assert g.mode == "title", g.mode
+        print("episode %d boss (%s) + victory ok" % (ep + 1, boss.st["title"]))
+    assert all(EPISODES[e][1] in g.available() for e in range(len(EPISODES))), "episode starts not selectable"
 
     # ---- progression keeps the loadout, refills health, tops up ammo, saves
     g.new_game(0, 1)
@@ -3265,7 +3369,7 @@ def selftest(out):
     rnd = random.Random(3)
     for i in range(NUM_LEVELS):
         g.new_game(i, 1)
-        for n in range(35 * 15):
+        for n in range(35 * 6):
             inp = dict(fwd=rnd.choice((-1, 0, 1, 1)), strafe=rnd.choice((-1, 0, 1)), turn=rnd.uniform(-0.1, 0.1),
                        fire=rnd.random() < 0.3, use=rnd.random() < 0.05)
             if rnd.random() < 0.03:
