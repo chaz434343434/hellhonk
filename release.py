@@ -1,4 +1,4 @@
-"""Publish a new HELLHONK version that everyone's game auto-updates to.
+"""Publish a new HONK version that everyone's game auto-updates to.
 
     py -3.9 release.py 1.0.1 "Added passive regen"
 
@@ -45,7 +45,7 @@ def main():
     run(["git", "commit", "-m", "Release v%s: %s\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" % (ver, notes)])
     run(["git", "tag", "v%s" % ver])
     run(["git", "push", "origin", "HEAD", "--tags"])
-    run(["gh", "release", "create", "v%s" % ver, exe, "--title", "HELLHONK v%s" % ver, "--notes", notes])
+    run(["gh", "release", "create", "v%s" % ver, exe, "--title", "HONK v%s" % ver, "--notes", notes])
     print("\nReleased v%s - games will update next time they start." % ver)
 
 

@@ -1,4 +1,4 @@
-"""HELLHONK - an original goose-themed retro FPS.  Episode 1: FOWL WATERS (6 levels), solo or 2-player co-op.
+"""HONK - an original goose-themed retro FPS.  Episode 1: FOWL WATERS (6 levels), solo or up to 3-player co-op.
 
 Run:  python hellhonk.py                  (play)
       python hellhonk.py --selftest DIR   (headless checks + screenshots)
@@ -119,9 +119,30 @@ REGEN_EVERY = 1.5      # seconds per +1 health
 REGEN_CAP = 100        # regen never goes above this
 
 
+def view_key(face, x, y, viewer):
+    """Which of the 8 drawn directions to show: '0' front ... '4' back, 'm' = mirrored (facing left)."""
+    a = math.atan2(viewer.py - y, viewer.px - x)
+    d = (face - a + math.pi) % (2 * math.pi) - math.pi
+    v = min(4, int(round(abs(d) / (math.pi / 4))))
+    return "%d%s" % (v, "m" if d > 0 and v in (1, 2, 3) else "")
+
+
 def shade_of(light, dist):
     s = light * np.clip(1.35 - dist / (5.0 + 12.0 * light * light), 0.1, 1.0)
     return np.floor(np.clip(s, 0.04, 1.0) * 20) / 20
+
+
+NAME_MAX = 16
+
+
+def clean_name(name):
+    """Gamer tags: printable, trimmed, at most NAME_MAX characters."""
+    name = "".join(ch for ch in str(name) if ch.isprintable()).strip()
+    return name[:NAME_MAX]
+
+
+def default_name():
+    return "GOOSE %03d" % random.randint(1, 999)
 
 
 def load_save():
@@ -133,9 +154,10 @@ def load_save():
         unlocked = max(1, min(NUM_LEVELS, int(d.get("unlocked", 1))))
         # saves from before v1.3 only knew "unlocked": every level below it was beaten
         beaten = sorted(set(beaten) | set(range(unlocked - 1)))
-        return dict(unlocked=unlocked, last_ip=str(d.get("last_ip", "")), beaten=beaten, best=best)
+        return dict(unlocked=unlocked, last_ip=str(d.get("last_ip", "")), beaten=beaten, best=best,
+                    name=clean_name(d.get("name", "")) or default_name(), fullscreen=bool(d.get("fullscreen", False)))
     except (OSError, ValueError, TypeError, AttributeError):
-        return dict(unlocked=1, last_ip="", beaten=[], best={})
+        return dict(unlocked=1, last_ip="", beaten=[], best={}, name=default_name(), fullscreen=False)
 
 
 def write_save(data):
@@ -247,8 +269,9 @@ class Net:
 
 # =================================================================== world objects
 class Player:
-    def __init__(self, pid, remote=False):
+    def __init__(self, pid, remote=False, name=None):
         self.pid, self.remote = pid, remote
+        self.name = name or "P%d" % (pid + 1)
         self.px = self.py = self.ang = self.vx = self.vy = 0.0
         self.health, self.armor, self.armor_class = 100, 0, 1
         self.ammo = {k: 0 for k in MAXAMMO}
@@ -306,6 +329,7 @@ class Enemy(Mob):
         self.zigt = 0.0
         self.sees = False
         self.target = None
+        self.face = random.randrange(8) * math.pi / 4     # idle monsters look somewhere random
         self.atk = None
         self.done = 0
         self.last_ev = -9.0
@@ -541,8 +565,12 @@ class Game:
         self.joiners = []            # host: [Net, connect_time] waiting for their hello
         pygame.mixer.pre_init(SR, -16, 2, 512)
         pygame.init()
-        self.window = pygame.display.set_mode(WIN)
-        pygame.display.set_caption("HELLHONK")
+        self.save = load_save()
+        self.fullscreen = bool(self.save.get("fullscreen")) and not headless
+        self.apply_display()
+        pygame.display.set_caption("HONK")
+        self.textq = []              # text is drawn last, at full output resolution, so it stays sharp
+        self.hifonts = {}
         self.screen = pygame.Surface((SW, SH))
         self.view = pygame.Surface((VW, VH))
         self.clock = pygame.time.Clock()
@@ -562,13 +590,15 @@ class Game:
         self.font_small = pygame.font.Font(None, 12)
         self.font_mid = pygame.font.Font(None, 20)
         self.font_title = pygame.font.Font(None, 64)
+        self.fsize = {self.font_big: 26, self.font: 14, self.font_small: 12, self.font_mid: 20}
         self.bar_bg = self.make_bar()
         self.title_bg = self.make_title()
         self.mode = "title"
         self.menu_open = False
         self.menu_i = 0
         self.skill = 1
-        self.save = load_save()
+        self.me.name = self.save["name"]
+        self.name_text = self.me.name
         self.unlocked = self.save["unlocked"]
         self.pick_level = self.unlocked - 1
         self.ip_text = self.save["last_ip"]
@@ -611,15 +641,12 @@ class Game:
         for x in (48, 104, 146, 174, 230, 250):
             pygame.draw.line(s, (30, 20, 12), (x, 1), (x, 31), 2)
             pygame.draw.line(s, (150, 120, 70), (x + 2, 1), (x + 2, 31), 1)
-        for x, label in ((24, "AMMO"), (76, "HEALTH"), (125, "WINGS"), (202, "ARMOR")):
-            t = self.font.render(label, False, (235, 210, 150))
-            s.blit(t, (x - t.get_width() // 2, 22))
         return s
 
     def make_title(self):
         s = pygame.surfarray.make_surface(self.A.sky)
         s = pygame.transform.scale(s, (SW, SH))
-        raw = self.font_title.render("HELLHONK", False, (255, 255, 255), (0, 0, 0))
+        raw = self.font_title.render("HONK", False, (255, 255, 255), (0, 0, 0))
         txt = pygame.Surface(raw.get_size())
         txt.blit(raw, (0, 0))
         arr = pygame.surfarray.pixels3d(txt)
@@ -636,9 +663,8 @@ class Game:
         for ox, oy in ((0, 0), (8, 0), (0, 8), (8, 8), (4, 8), (8, 4)):
             out.blit(sh, (ox, oy))
         out.blit(txt, (4, 4))
-        s.blit(out, (SW // 2 - out.get_width() // 2, 10))
-        sub = self.font_mid.render("EPISODE 1: FOWL WATERS", False, (255, 220, 160))
-        s.blit(sub, (SW // 2 - sub.get_width() // 2, 58))
+        out = pygame.transform.scale(out, (int(out.get_width() * 1.25), int(out.get_height() * 1.1)))
+        s.blit(out, (SW // 2 - out.get_width() // 2, 4))
         goose = pygame.transform.scale(self.A.faces[(0, 0, "grin")], (44, 51))
         s.blit(goose, (10, 92))
         s.blit(pygame.transform.flip(goose, True, False), (SW - 54, 92))
@@ -771,6 +797,7 @@ class Game:
     def loading_screen(self):
         if self.headless:
             return
+        self.begin_frame()
         self.screen.fill((0, 0, 0))
         self.text_c(self.screen, "LOADING...", SH // 2 - 6, (255, 200, 120), self.font_mid)
         self.present()
@@ -1240,15 +1267,20 @@ class Game:
             e.zig = random.uniform(-0.9, 0.9)
         mx, my = tx - e.x, ty - e.y
         md = math.hypot(mx, my)
+        if e.sees:
+            e.face = math.atan2(dy, dx)
         if md < 0.05 or (e.sees and dist < e.r + PR + 0.15):
             return
         a = math.atan2(my, mx) + (e.zig if e.sees else 0)
+        if not e.sees:
+            e.face = a
         sp = st["speed"] * (1.25 if self.skill == 2 else 1.0) * dt
         if not self.try_move(e, e.x + math.cos(a) * sp, e.y + math.sin(a) * sp, e.r):
             e.zigt = 0
 
     def attack_step(self, e, dt, dist):
         e.t += dt
+        e.face = math.atan2(self.py - e.y, self.px - e.x)
         atk = e.atk
         tl = atk["tl"]
         while e.done < len(tl) and e.t >= tl[e.done][0]:
@@ -1550,87 +1582,109 @@ class Game:
         self.ammo[kind] = min(MAXAMMO[kind], self.ammo[kind] + n * mul)
         return True
 
-    def give_weapon(self, name, ammo, n, text):
+    def give_weapon(self, name, ammo, n, text, picker=True):
         first = not self.owned[name]
         self.owned[name] = True
         self.give_ammo(ammo, n)
         self.face.update(mood="grin", mt=1.5)
-        if first:
+        if first and picker:          # only the goose who grabbed it switches; the rest just get it
             self.switch(name)
         return True, text, "weapon"
 
-    def pickup_check(self):
-        for p in self.pickups:
-            if p.removed or (p.x - self.px) ** 2 + (p.y - self.py) ** 2 > 0.45:
-                continue
-            k = p.kind
-            took, text, snd = False, "", "item"
-            if k == "bread" and self.health < 100:
-                self.health = min(100, self.health + 10); took, text = True, "Picked up a slice of bread."
-            elif k == "loaf" and self.health < 100:
-                self.health = min(100, self.health + 25); took, text = True, "Picked up a whole loaf!"
-            elif k == "crumbs":
-                self.health = min(200, self.health + 1); took, text = True, "Picked up some crumbs."
-            elif k == "vest" and self.armor < 100:
-                self.armor, self.armor_class = 100, 1; took, text = True, "Picked up the feather vest!"
-            elif k == "downjacket" and self.armor < 200:
-                self.armor, self.armor_class = 200, 2; took, text = True, "Picked up the armored down jacket!"
-            elif k == "feather":
-                self.armor = min(200, self.armor + 1); took, text = True, "Picked up a loose feather."
-            elif k == "pebbles" and self.give_ammo("pebbles", 5 if p.dropped else 10):
-                took, text = True, "Picked up a pouch of pebbles."
-            elif k == "pebblebox" and self.give_ammo("pebbles", 50):
-                took, text = True, "Picked up a box of pebbles."
-            elif k == "eggs" and self.give_ammo("eggs", 4):
-                took, text = True, "Picked up an egg carton."
-            elif k == "eggcrate" and self.give_ammo("eggs", 20):
-                took, text = True, "Picked up a crate of eggs."
-            elif k == "baguette" and self.give_ammo("baguettes", 1):
-                took, text = True, "Picked up a baguette."
-            elif k == "baguettes" and self.give_ammo("baguettes", 5):
-                took, text = True, "Picked up a rack of baguettes."
-            elif k == "corn" and self.give_ammo("corn", 20):
-                took, text = True, "Picked up a hell corn cob."
-            elif k == "cornsack" and self.give_ammo("corn", 100):
-                took, text = True, "Picked up a sack of hell corn."
-            elif k == "egggun":
-                took, text, snd = self.give_weapon("egggun", "eggs", 8, "You got the Egg-Gun!")
-            elif k == "flinger":
-                took, text, snd = self.give_weapon("flinger", "pebbles", 20, "You got the Feather Flinger!")
-            elif k == "bazooka":
-                took, text, snd = self.give_weapon("bazooka", "baguettes", 2, "You got the Baguette Bazooka!")
-            elif k == "megahonk":
-                took, text, snd = self.give_weapon("megahonk", "corn", 40, "You got the MEGAHONK! Hold on to your feathers.")
-            elif k in ("ykey", "bkey", "rkey"):
-                c = {"ykey": "yellow", "bkey": "blue", "rkey": "red"}[k]
-                self.keys.add(c)
-                took, text, snd = True, "Picked up a %s key." % c, "key"
-                for other in self.players:
-                    if other is not self.cur:
-                        self.msg("Your partner found the %s key!" % c, other)
-            elif k == "rage":
-                self.rage = True
-                self.health = max(self.health, 100)
-                self.tint[0] = 1.0
+    def apply_pickup(self, p, picker):
+        """Give pickup p to the current player. Returns (took, text, sound)."""
+        k = p.kind
+        took, text, snd = False, "", "item"
+        if k == "bread" and self.health < 100:
+            self.health = min(100, self.health + 10); took, text = True, "a slice of bread"
+        elif k == "loaf" and self.health < 100:
+            self.health = min(100, self.health + 25); took, text = True, "a whole loaf"
+        elif k == "crumbs":
+            self.health = min(200, self.health + 1); took, text = True, "some crumbs"
+        elif k == "vest" and self.armor < 100:
+            self.armor, self.armor_class = 100, 1; took, text = True, "the feather vest"
+        elif k == "downjacket" and self.armor < 200:
+            self.armor, self.armor_class = 200, 2; took, text = True, "the armored down jacket"
+        elif k == "feather":
+            self.armor = min(200, self.armor + 1); took, text = True, "a loose feather"
+        elif k == "pebbles" and self.give_ammo("pebbles", 5 if p.dropped else 10):
+            took, text = True, "a pouch of pebbles"
+        elif k == "pebblebox" and self.give_ammo("pebbles", 50):
+            took, text = True, "a box of pebbles"
+        elif k == "eggs" and self.give_ammo("eggs", 4):
+            took, text = True, "an egg carton"
+        elif k == "eggcrate" and self.give_ammo("eggs", 20):
+            took, text = True, "a crate of eggs"
+        elif k == "baguette" and self.give_ammo("baguettes", 1):
+            took, text = True, "a baguette"
+        elif k == "baguettes" and self.give_ammo("baguettes", 5):
+            took, text = True, "a rack of baguettes"
+        elif k == "corn" and self.give_ammo("corn", 20):
+            took, text = True, "a hell corn cob"
+        elif k == "cornsack" and self.give_ammo("corn", 100):
+            took, text = True, "a sack of hell corn"
+        elif k == "egggun":
+            took, text, snd = self.give_weapon("egggun", "eggs", 8, "the EGG-GUN", picker)
+        elif k == "flinger":
+            took, text, snd = self.give_weapon("flinger", "pebbles", 20, "the FEATHER FLINGER", picker)
+        elif k == "bazooka":
+            took, text, snd = self.give_weapon("bazooka", "baguettes", 2, "the BAGUETTE BAZOOKA", picker)
+        elif k == "megahonk":
+            took, text, snd = self.give_weapon("megahonk", "corn", 40, "the MEGAHONK", picker)
+        elif k in ("ykey", "bkey", "rkey"):
+            c = {"ykey": "yellow", "bkey": "blue", "rkey": "red"}[k]
+            self.keys.add(c)
+            took, text, snd = True, "the %s key" % c, "key"
+        elif k == "rage":
+            self.rage = True
+            self.health = max(self.health, 100)
+            self.tint[0] = 1.0
+            if picker:
                 self.switch("peck")
-                took, text, snd = True, "RAGE BREAD! Your beak is a weapon of war.", "powerup"
-            elif k == "goldegg":
-                self.invuln = 25.0
-                took, text, snd = True, "GOLDEN EGG! Nothing can touch you.", "powerup"
-            elif k == "boots":
-                self.boots = 40.0
-                took, text, snd = True, "Rubber boots! Sludge and lava can't hurt you.", "powerup"
-            elif k == "parkmap":
-                self.R.seen[:] = True
-                self.map_reveal = True
-                took, text, snd = True, "Park map! The whole area is on your automap.", "powerup"
-            if took:
-                p.removed = True
-                if k in COUNT_ITEMS:
-                    self.items += 1
-                self.tint[1] = 0.35
-                self.msg(text)
-                self.sound(snd)
+            took, text, snd = True, "RAGE BREAD (beaks do 8x damage)", "powerup"
+        elif k == "goldegg":
+            self.invuln = 25.0
+            took, text, snd = True, "a GOLDEN EGG (nothing can touch you)", "powerup"
+        elif k == "boots":
+            self.boots = 40.0
+            took, text, snd = True, "rubber boots (sludge and lava can't hurt you)", "powerup"
+        elif k == "parkmap":
+            self.R.seen[:] = True
+            self.map_reveal = True
+            took, text, snd = True, "the park map (check your automap)", "powerup"
+        return took, text, snd
+
+    def pickup_check(self):
+        """Whatever one goose picks up, the whole (living) flock gets."""
+        picker = self.cur
+        for p in self.pickups:
+            if p.removed or (p.x - picker.px) ** 2 + (p.y - picker.py) ** 2 > 0.45:
+                continue
+            flock = [picker] + [o for o in self.players if o is not picker and not o.dead]
+            got = []
+            text, snd = "", "item"
+            for o in flock:
+                self.cur = o
+                took, t, s = self.apply_pickup(p, o is picker)
+                if took:
+                    got.append(o)
+                    text, snd = t, s
+            self.cur = picker
+            if not got:
+                continue
+            p.removed = True
+            if p.kind in COUNT_ITEMS:
+                self.items += 1
+            for o in got:
+                o.tint[1] = 0.35
+            self.msg("You got %s!" % text, picker)
+            self.sound(snd, who=picker)
+            for o in self.players:
+                if o is not picker:
+                    shared = " - you got it too!" if o in got else ""
+                    self.msg("%s got %s%s" % (picker.name, text, shared), o)
+                    if o in got:
+                        self.sound(snd, who=o)
         self.pickups = [p for p in self.pickups if not p.removed]
 
     def update_missiles(self, dt):
@@ -1708,7 +1762,7 @@ class Game:
         if idx not in sv["beaten"]:
             sv["beaten"] = sorted(sv["beaten"] + [idx])
         k = str(idx)
-        if seconds > 0 and (k not in sv["best"] or seconds < sv["best"][k]):
+        if seconds >= 5 and (k not in sv["best"] or seconds < sv["best"][k]):
             sv["best"][k] = round(seconds, 1)
             self.new_best = True
         else:
@@ -1760,7 +1814,7 @@ class Game:
         self.listener = ls
         self.joiners = []
         self.role = "host"
-        self.me = self.cur = Player(0)
+        self.me = self.cur = Player(0, name=self.save["name"])
         self.players = [self.me]
         self.level = None
         self.mode = "host_wait"          # the lobby
@@ -1807,7 +1861,8 @@ class Game:
                 net.close()
                 continue
             used = {p.pid for p in self.players}
-            p = Player(min(set(range(MAX_PLAYERS)) - used), remote=True)
+            p = Player(min(set(range(MAX_PLAYERS)) - used), remote=True,
+                       name=clean_name(hello.get("name", "")) or "GOOSE")
             p.net = net
             self.players.append(p)
             net.send({"t": "welcome", "skill": self.skill, "pid": p.pid})
@@ -1816,11 +1871,15 @@ class Game:
             else:
                 # late join: drop them in at the level start with a fresh loadout for this level
                 p.carry = self.default_loadout(self.level_idx)
+                for o in self.players:          # weapons are shared, so bring them up to speed
+                    if o is not p:
+                        for w, have in o.owned.items():
+                            p.carry["owned"][w] = p.carry["owned"][w] or have
                 self.cur = p
                 self.reset_player(p, p.carry)
                 self.cur = self.me
                 self.effects.append(Effect("telefog", p.px, p.py, 0.0, 3, 0.5))
-                self.msg_all("Player %d joined the flock!" % (p.pid + 1))
+                self.msg_all("%s joined the flock!" % p.name)
                 self.sound("teleport", p.px, p.py)
 
     def host_net_tick(self):
@@ -1843,7 +1902,7 @@ class Game:
                 self.players.remove(p)
                 self.cur = self.me
                 if self.mode in ("play", "intermission", "victory"):
-                    self.msg_all("Player %d left the pond." % (p.pid + 1))
+                    self.msg_all("%s left the pond." % p.name)
                 continue
             if self.mode == "host_wait":
                 if time.time() - self.lobby_sent > 0.25:
@@ -1854,7 +1913,7 @@ class Game:
             self.lobby_sent = time.time()
 
     def lobby_info(self):
-        return {"t": "lobby", "players": sorted(p.pid for p in self.players),
+        return {"t": "lobby", "players": sorted([p.pid, p.name] for p in self.players),
                 "level": LEVEL_NAMES[self.pick_level], "idx": self.pick_level, "skill": SKILLS[self.skill]}
 
     def build_snapshot(self, p):
@@ -1867,7 +1926,8 @@ class Game:
             gone=[i for i, d in enumerate(self.decor) if d.removed], things=things,
             keys=sorted(self.keys), boss=None if self.boss_frac is None else round(self.boss_frac, 3),
             snd=p.snd, warp=p.warp,
-            mates=[[o.pid, round(o.health), int(o.dead), round(o.px, 2), round(o.py, 2)] for o in self.players if o is not p],
+            mates=[[o.pid, round(o.health), int(o.dead), round(o.px, 2), round(o.py, 2), o.name]
+                   for o in self.players if o is not p],
             stats=[self.kills, self.kills_total, self.items, self.items_total, len(self.secrets_found),
                    L.secrets_total, round(self.level_time, 1)],
             total=getattr(self, "total", {}), inter=round(getattr(self, "inter_t", 0.0), 2),
@@ -1892,7 +1952,7 @@ class Game:
         self.save["last_ip"] = ip
         write_save(self.save)
         self.net = Net(sock)
-        self.net.send({"t": "hello", "v": VERSION})
+        self.net.send({"t": "hello", "v": VERSION, "name": self.me.name})
         self.role = "client"
         self.mode = "joining"
         self.join_t = time.time()
@@ -2034,7 +2094,7 @@ class Game:
             self.listener.close()
             self.listener = None
         self.role = "solo"
-        self.me = self.cur = Player(0)
+        self.me = self.cur = Player(0, name=self.save["name"])
         self.players = [self.me]
         self.level = None
         self.mode, self.menu_i, self.menu_open = "title", 0, False
@@ -2057,6 +2117,8 @@ class Game:
             else:
                 f = "walk%d" % (int(e.anim * 5) % 2)
             bright = f == e.st["poses"][1] and e.state == "attack" and e.kind not in ("brute", "gosling")
+            if not f.startswith("d"):
+                f += "|" + view_key(e.face, e.x, e.y, viewer)
             out.append((e.kind, f, e.x, e.y, 0.0, e.st["h"], bright))
         for p in self.players:
             if p is viewer:
@@ -2069,6 +2131,8 @@ class Game:
                 f = "pain"
             else:
                 f = "walk%d" % (int(p.bob) % 2)
+            if f != "d2":
+                f = "%s:%s|%s" % (p.weapon, f, view_key(p.ang, p.px, p.py, viewer))
             out.append(("goose%d" % (p.pid % 3), f, p.px, p.py, 0.0, 0.62, p.wstate == "fire" and p.wfi == 0))
         for p in self.pickups:
             out.append((p.kind, "0", p.x, p.y, 0.0, ITEM_H[p.kind], p.kind in ("ykey", "bkey", "rkey", "goldegg", "megahonk")))
@@ -2084,11 +2148,33 @@ class Game:
             out.append((fx.kind, str(i), fx.x, fx.y, fx.z, FX_H[fx.kind], fx.kind != "blood"))
         return out
 
-    def mate_status(self):
-        """[(pid, health, dead)] for every other player, host or client side."""
+    def draw_name_tags(self, hz):
+        """Gamer tags floating over the other geese (hidden behind walls)."""
         if self.role == "client":
-            return [(m[0], m[1], bool(m[2])) for m in getattr(self, "mates", [])]
-        return [(p.pid, p.health, p.dead) for p in self.players if p is not self.me]
+            others = [(m[3], m[4], m[5] if len(m) > 5 else "P%d" % (m[0] + 1), m[0], m[2])
+                      for m in getattr(self, "mates", []) if len(m) > 4]
+        else:
+            others = [(p.px, p.py, p.name, p.pid, p.dead) for p in self.players if p is not self.me]
+        dirx, diry = math.cos(self.ang), math.sin(self.ang)
+        for x, y, name, pid, dead in others:
+            rx, ry = x - self.px, y - self.py
+            depth = rx * dirx + ry * diry
+            if depth < 0.3 or depth > 30:
+                continue
+            sx = VW / 2 * (1 + (rx * -diry + ry * dirx) / depth)
+            col = int(sx)
+            if not 0 <= col < VW or depth > self.R.zbuf[col] + 0.05:
+                continue
+            top = hz + (self.eye - (0.12 if dead else 0.66)) * PROJ_V / depth - 9
+            vest = VEST_COLORS[pid % len(VEST_COLORS)][1]
+            self.text_c_at(self.view, name, sx, max(0, top), vest, self.font_small)
+
+    def mate_status(self):
+        """[(pid, health, dead, name)] for every other player, host or client side."""
+        if self.role == "client":
+            return [(m[0], m[1], bool(m[2]), m[5] if len(m) > 5 else "P%d" % (m[0] + 1))
+                    for m in getattr(self, "mates", [])]
+        return [(p.pid, p.health, p.dead, p.name) for p in self.players if p is not self.me]
 
     def client_things(self):
         """The host's list plus our own animated decor (lamps/barrels flicker locally)."""
@@ -2100,12 +2186,14 @@ class Game:
         self.view.blit(o, (0, 0))
 
     def draw_play(self):
+        self.begin_frame()
         self.cur = self.me
         bobv = math.sin(self.bob * 2) * 1.6 * self.bob_amt
         hz = VH / 2 + bobv + (random.uniform(-6, 6) * self.shake if self.shake > 0 else 0)
         things = self.client_things() if self.role == "client" else self.drawables(self.me)
         frame = self.R.render(self, self.px, self.py, self.ang, hz, self.eye, things)
         pygame.surfarray.blit_array(self.view, frame)
+        self.draw_name_tags(hz)
         if not self.dead:
             self.draw_weapon()
         if self.automap:
@@ -2123,8 +2211,8 @@ class Game:
         for i, (m, _) in enumerate(self.msgs):
             self.text(self.view, m, 3, 2 + i * 10, (255, 230, 170))
         pw = []
-        for pid, hp, dead in self.mate_status():
-            pw.append(("P%d %s" % (pid + 1, "DOWN" if dead else "%d%%" % hp),
+        for pid, hp, dead, name in self.mate_status():
+            pw.append(("%s %s" % (name, "DOWN" if dead else "%d%%" % hp),
                        (255, 120, 120) if dead else (150, 230, 255)))
         if self.rage:
             pw.append(("RAGE", (255, 80, 60)))
@@ -2133,7 +2221,7 @@ class Game:
         if self.boots > 0:
             pw.append(("BOOTS %d" % math.ceil(self.boots), (120, 255, 120)))
         for i, (t, c) in enumerate(pw):
-            self.text(self.view, t, VW - self.font.size(t)[0] - 3, 2 + i * 10, c)
+            self.text_r(self.view, t, VW - 3, 2 + i * 10, c)
         if self.boss_frac is not None:
             r = pygame.Rect(60, VH - 14, 200, 7)
             pygame.draw.rect(self.view, (30, 0, 0), r)
@@ -2144,7 +2232,7 @@ class Game:
             line = "YOU GOT COOKED. Press USE to try again."
             mates = self.mate_status()
             if mates:
-                alive = any(not dead for _, _, dead in mates)
+                alive = any(not dead for _, _, dead, _ in mates)
                 line = "YOU GOT COOKED. Press USE to rejoin." if alive else "THE WHOLE FLOCK GOT COOKED... restarting"
             self.text_c(self.view, line, VH // 2 - 6, (255, 220, 200))
         self.screen.blit(self.view, (0, 0))
@@ -2215,6 +2303,8 @@ class Game:
         s.blit(self.bar_bg, (0, VH))
         y = VH + 2
         w = WEAPONS[self.weapon]
+        for x, label in ((24, "AMMO"), (76, "HEALTH"), (125, "WINGS"), (202, "ARMOR")):
+            self.text_c_at(s, label, x, VH + 22, (235, 210, 150), self.font_small)
         self.big("" if w["ammo"] is None else str(self.ammo[w["ammo"]]), 24, y)
         self.big("%d%%" % self.health, 76, y)
         self.big("%d%%" % self.armor, 202, y)
@@ -2246,40 +2336,93 @@ class Game:
             c = (255, 240, 200) if w["ammo"] == k else (225, 200, 140)
             self.text(s, "%s %3d/%d" % (lab, self.ammo[k], MAXAMMO[k]), 254, VH + 2 + i * 7, c, self.font_small)
 
-    def big(self, t, cx, y):
-        img = self.font_big.render(t, False, (230, 60, 30))
-        sh = self.font_big.render(t, False, (40, 0, 0))
-        self.screen.blit(sh, (cx - img.get_width() // 2 + 1, y + 1))
-        self.screen.blit(img, (cx - img.get_width() // 2, y))
+    # ---- text: queued in low-res coordinates, rendered sharp at output resolution in compose()
+    def begin_frame(self):
+        self.textq = []
 
-    def text(self, surf, t, x, y, c, font=None):
-        font = font or self.font
-        surf.blit(font.render(t, False, (0, 0, 0)), (x + 1, y + 1))
-        surf.blit(font.render(t, False, c), (x, y))
+    def big(self, t, cx, y):
+        self.textq.append((t, cx, y, (230, 60, 30), 26, "c"))
+
+    def text(self, surf, t, x, y, c, font=None, align="l"):
+        self.textq.append((t, x, y, c, self.fsize.get(font or self.font, 14), align))
+
+    def text_r(self, surf, t, rx, y, c, font=None):
+        self.text(surf, t, rx, y, c, font, "r")
 
     def text_c_at(self, surf, t, cx, y, c, font=None):
-        font = font or self.font_small
-        self.text(surf, t, cx - font.size(t)[0] // 2, y, c, font)
+        self.text(surf, t, cx, y, c, font or self.font_small, "c")
 
     def text_c(self, surf, t, y, c, font=None):
-        font = font or self.font
-        self.text(surf, t, surf.get_width() // 2 - font.size(t)[0] // 2, y, c, font)
+        self.text(surf, t, SW / 2, y, c, font, "c")
+
+    def hifont(self, px):
+        f = self.hifonts.get(px)
+        if f is None:
+            f = self.hifonts[px] = pygame.font.Font(None, px)
+        return f
+
+    def apply_display(self):
+        if self.fullscreen:
+            self.window = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        else:
+            self.window = pygame.display.set_mode(WIN, pygame.RESIZABLE)
+
+    def toggle_fullscreen(self):
+        self.fullscreen = not self.fullscreen
+        self.save["fullscreen"] = self.fullscreen
+        write_save(self.save)
+        self.apply_display()
+        if self.mode == "play" and not self.menu_open:
+            self.grab(True)
+
+    def compose(self, dst):
+        """Scale the 320x200 game to fit dst (4:3, letterboxed) and draw all queued text on top, crisp."""
+        W, H = dst.get_size()
+        oh = H
+        ow = int(round(H * 4 / 3))
+        if ow > W:
+            ow, oh = W, int(round(W * 3 / 4))
+        ox, oy = (W - ow) // 2, (H - oh) // 2
+        dst.fill((0, 0, 0))
+        dst.blit(pygame.transform.scale(self.screen, (ow, oh)), (ox, oy))
+        sx, sy = ow / SW, oh / SH
+        shadow = max(1, int(round(sy * 0.45)))
+        for t, x, y, c, size, align in self.textq:
+            if not t:
+                continue
+            f = self.hifont(max(8, int(round(size * sy * 0.85))))
+            img = f.render(t, True, c)
+            sh = f.render(t, True, (0, 0, 0))
+            X = ox + x * sx
+            if align == "c":
+                X -= img.get_width() / 2
+            elif align == "r":
+                X -= img.get_width()
+            Y = oy + y * sy
+            dst.blit(sh, (int(X) + shadow, int(Y) + shadow))
+            dst.blit(img, (int(X), int(Y)))
 
     def menu_items(self):
         if self.mode == "title":
             arrows = ("< ", " >") if self.unlocked > 1 else ("", "")
             return ["START: " + arrows[0] + LEVEL_NAMES[self.pick_level] + arrows[1], "CO-OP: HOST GAME", "CO-OP: JOIN GAME",
-                    "SKILL: " + SKILLS[self.skill], "MUSIC: " + ("ON" if self.music_on else "OFF"), "QUIT"]
+                    "NAME: " + self.me.name, "SKILL: " + SKILLS[self.skill], self.display_label(),
+                    "MUSIC: " + ("ON" if self.music_on else "OFF"), "QUIT"]
         if self.role == "client":
-            return ["RESUME", "MUSIC: " + ("ON" if self.music_on else "OFF"), "LEAVE CO-OP GAME"]
-        items = ["RESUME", "MUSIC: " + ("ON" if self.music_on else "OFF"), "RESTART LEVEL"]
+            return ["RESUME", "MUSIC: " + ("ON" if self.music_on else "OFF"), self.display_label(), "LEAVE CO-OP GAME"]
+        items = ["RESUME", "MUSIC: " + ("ON" if self.music_on else "OFF"), self.display_label(), "RESTART LEVEL"]
         return items + (["END CO-OP GAME"] if self.role == "host" else ["QUIT TO TITLE"])
 
+    def display_label(self):
+        return "DISPLAY: " + ("FULLSCREEN" if self.fullscreen else "WINDOWED") + "  (F11)"
+
     def draw_menu(self):
+        self.begin_frame()
         s = self.screen
         if self.mode == "title":
             s.blit(self.title_bg, (0, 0))
-            y0 = 82
+            self.text_c(s, "EPISODE 1: FOWL WATERS", 62, (255, 220, 160), self.font_mid)
+            y0 = 76
         else:
             self.draw_play()
             o = pygame.Surface((SW, SH), pygame.SRCALPHA)
@@ -2290,11 +2433,12 @@ class Game:
             y0 = 80
         for i, it in enumerate(self.menu_items()):
             sel = i == self.menu_i
-            c = (255, 240, 200) if sel else (200, 120, 80)
-            self.text_c(s, it, y0 + i * 12, c, self.font_mid if sel else self.font)
+            # same size whether selected or not, so lines never jump or overlap
+            c = (255, 245, 210) if sel else (205, 125, 85)
+            self.text_c(s, ("> %s <" % it) if sel and not it.startswith("START") else it, y0 + i * 11, c, self.font)
         if self.mode == "title":
             if self.banner:
-                self.text_c(s, self.banner, y0 + 74, (255, 120, 100), self.font_small)
+                self.text_c(s, self.banner, y0 + 90, (255, 120, 100), self.font_small)
             else:
                 status, best = self.level_status(self.pick_level)
                 if status == "BEATEN":
@@ -2305,16 +2449,17 @@ class Game:
                     col = (255, 210, 120)
                 if self.unlocked > 1:
                     line += "   -   LEFT/RIGHT picks level"
-                self.text_c(s, line, y0 + 74, col, self.font_small)
+                self.text_c(s, line, y0 + 90, col, self.font_small)
             self.text_c(s, "WASD move  MOUSE turn  CLICK fire  E use", SH - 22, (230, 210, 190))
             self.text_c(s, "1-6 weapons  TAB map  SHIFT walk  M music", SH - 11, (230, 210, 190))
             ver = "v" + APP_VERSION
-            self.text(s, ver, SW - self.font_small.size(ver)[0] - 3, SH - 9, (160, 140, 120), self.font_small)
+            self.text_r(s, ver, SW - 3, SH - 9, (160, 140, 120), self.font_small)
             up = self.updater.status_line()
             if up:
                 self.text_c(s, up, 2, (140, 255, 170), self.font_small)
 
     def draw_lobby(self):
+        self.begin_frame()
         s = self.screen
         s.blit(self.title_bg, (0, 0))
         o = pygame.Surface((SW, SH), pygame.SRCALPHA)
@@ -2330,7 +2475,8 @@ class Game:
             # the flock: three slots
             for slot in range(MAX_PLAYERS):
                 x = 58 + slot * 72
-                here = slot in info["players"]
+                names = {pid: nm for pid, nm in info["players"]}
+                here = slot in names
                 vest = VEST_COLORS[slot][0]
                 box = pygame.Rect(x, 62, 60, 56)
                 pygame.draw.rect(s, (40, 18, 14) if here else (20, 10, 8), box)
@@ -2339,12 +2485,11 @@ class Game:
                     face = pygame.transform.scale(self.A.faces[(0, 0, "grin" if slot == 0 else "normal")], (26, 30))
                     s.blit(face, (x + 17, 66))
                     pygame.draw.rect(s, vest, (x + 14, 98, 32, 6))
-                    who = "HOST" if slot == 0 else "P%d" % (slot + 1)
-                    if not host and slot == self.me.pid:
-                        who += " (YOU)"
-                    elif host and slot == 0:
-                        who = "YOU (HOST)"
-                    self.text_c_at(s, who, x + 30, 106, (255, 240, 200))
+                    self.text_c_at(s, names[slot], x + 30, 106, (255, 240, 200))
+                    role = "HOST" if slot == 0 else "P%d" % (slot + 1)
+                    if (host and slot == 0) or (not host and slot == self.me.pid):
+                        role += " - YOU"
+                    self.text_c_at(s, role, x + 30, 52, vest)
                 else:
                     self.text_c_at(s, "open", x + 30, 84, (120, 100, 90))
             mark = ""
@@ -2377,8 +2522,18 @@ class Game:
                 self.text_c(s, self.banner, 160, (255, 120, 100), self.font_small)
         elif self.mode == "joining":
             self.text_c(s, "CONNECTING" + "." * (int(self.t * 2) % 4), 96, (255, 230, 170), self.font_mid)
+        elif self.mode == "name_entry":
+            self.text_c(s, "YOUR GAMER TAG", 60, (255, 210, 120), self.font_mid)
+            self.text_c(s, "Everyone in co-op sees this name. Type it and press ENTER:", 88, (240, 225, 200))
+            box = pygame.Rect(70, 104, 180, 18)
+            pygame.draw.rect(s, (20, 10, 10), box)
+            pygame.draw.rect(s, (255, 200, 120), box, 1)
+            cursor = "_" if int(self.t * 3) % 2 else " "
+            self.text(s, self.name_text + cursor, box.x + 5, box.y + 3, (255, 255, 255), self.font_mid)
+            self.text_c(s, "up to %d characters   -   ESC to cancel" % NAME_MAX, 140, (200, 180, 160))
 
     def draw_intermission(self):
+        self.begin_frame()
         s = self.screen
         s.blit(self.title_bg, (0, 0))
         o = pygame.Surface((SW, SH), pygame.SRCALPHA)
@@ -2409,6 +2564,7 @@ class Game:
             self.text_c(s, "waiting for the host..." if self.role == "client" else "press a key", 178, (220, 200, 180))
 
     def draw_victory(self):
+        self.begin_frame()
         s = self.screen
         s.blit(self.title_bg, (0, 0))
         o = pygame.Surface((SW, SH), pygame.SRCALPHA)
@@ -2420,7 +2576,7 @@ class Game:
                  "pond goes quiet for the first time in years.",
                  "",
                  "But somewhere downstream, something quacks back...",
-                 "Thanks for playing HELLHONK Episode 1: FOWL WATERS"]
+                 "Thanks for playing HONK Episode 1: FOWL WATERS"]
         shown = int(self.inter_t * 25)
         y = 44
         for line in story:
@@ -2438,7 +2594,7 @@ class Game:
             self.text_c(s, "waiting for the host..." if self.role == "client" else "press a key", 178, (220, 200, 180))
 
     def present(self):
-        pygame.transform.scale(self.screen, WIN, self.window)
+        self.compose(self.window)
         pygame.display.flip()
 
     # ------------------------------------------------------------- main loop
@@ -2472,6 +2628,11 @@ class Game:
         elif it == "CO-OP: JOIN GAME" and not delta:
             self.banner = ""
             self.mode = "join_entry"
+        elif it.startswith("NAME") and not delta:
+            self.name_text = self.me.name
+            self.mode = "name_entry"
+        elif it.startswith("DISPLAY"):
+            self.toggle_fullscreen()
         elif it == "QUIT":
             return False
         elif it == "RESUME":
@@ -2486,6 +2647,23 @@ class Game:
 
     def handle_key(self, k, ev, inp):
         """Returns False to quit."""
+        if k == pygame.K_F11 or (k == pygame.K_RETURN and ev.mod & pygame.KMOD_ALT):
+            self.toggle_fullscreen()
+            return True
+        if self.mode == "name_entry":
+            if k == pygame.K_ESCAPE:
+                self.mode = "title"
+            elif k == pygame.K_RETURN:
+                name = clean_name(self.name_text)
+                if name:
+                    self.me.name = self.save["name"] = name
+                    write_save(self.save)
+                self.mode = "title"
+            elif k == pygame.K_BACKSPACE:
+                self.name_text = self.name_text[:-1]
+            elif ev.unicode and ev.unicode.isprintable() and len(self.name_text) < NAME_MAX:
+                self.name_text += ev.unicode
+            return True
         if self.mode == "title" or self.menu_open:
             n = len(self.menu_items())
             if k in (pygame.K_UP, pygame.K_w):
@@ -2559,6 +2737,8 @@ class Game:
             for ev in pygame.event.get():
                 if ev.type == pygame.QUIT:
                     running = False
+                elif ev.type == pygame.VIDEORESIZE and not self.fullscreen:
+                    self.window = pygame.display.get_surface()
                 elif ev.type == pygame.KEYDOWN:
                     running = self.handle_key(ev.key, ev, inp) and running
                 elif ev.type == pygame.MOUSEBUTTONDOWN and self.mode == "play" and not self.menu_open:
@@ -2609,7 +2789,7 @@ class Game:
                 if self.role != "client":
                     self.inter_t += dt
                 self.draw_victory()
-            elif self.mode in ("host_wait", "client_lobby", "join_entry", "joining"):
+            elif self.mode in ("host_wait", "client_lobby", "join_entry", "joining", "name_entry"):
                 self.draw_lobby()
             else:
                 self.draw_menu()
@@ -2681,8 +2861,10 @@ def selftest(out):
     g = Game(headless=True)
     print("startup %.2fs audio=%s" % (time.time() - t0, g.audio))
 
-    def shot(game, name):
-        pygame.image.save(pygame.transform.scale(game.screen, WIN), os.path.join(out, name + ".png"))
+    def shot(game, name, size=WIN):
+        surf = pygame.Surface(size)
+        game.compose(surf)
+        pygame.image.save(surf, os.path.join(out, name + ".png"))
 
     def step(n=1, **inp):
         for _ in range(n):
@@ -2887,6 +3069,7 @@ def selftest(out):
 
     # ---- CO-OP: a host and two clients in this process, over real localhost sockets
     host, c1, c2 = g, Game(headless=True), Game(headless=True)
+    host.save["name"], c1.me.name, c2.me.name = "Honk Daddy", "Two Finger Shot", "Chasey Pig"
     host.leave_coop()
     host.pick_level, host.skill = 0, 1
     assert host.start_host("127.0.0.1"), host.banner     # localhost only: never collide with real games on a VPN
@@ -2901,7 +3084,8 @@ def selftest(out):
     assert host.role == "host" and len(host.players) == 2, (
         "host never accepted the client", host.mode, host.banner, c1.mode, c1.banner)
     assert host.mode == "host_wait" and host.level is None, "match started before the host pressed START"
-    assert c1.mode == "client_lobby" and c1.lobby["players"] == [0, 1], ("joiner not in lobby", c1.mode)
+    assert c1.mode == "client_lobby" and [p[0] for p in c1.lobby["players"]] == [0, 1], ("joiner not in lobby", c1.lobby)
+    assert dict(c1.lobby["players"]) == {0: host.me.name, 1: c1.me.name}, ("gamer tags missing", c1.lobby)
     host.draw_lobby()
     shot(host, "lobby_host")
     c1.draw_lobby()
@@ -2951,6 +3135,35 @@ def selftest(out):
     c2.draw_play()
     shot(c2, "coop3_late_joiner")
     print("3-player co-op + late join ok")
+
+    # gamer tags show on the HUD and over each goose
+    assert host.players[1].name == c1.me.name and host.players[2].name == c2.me.name
+    assert sorted(n for *_, n in c1.mate_status()) == sorted([host.me.name, c2.me.name]), c1.mate_status()
+
+    # shared pickups: P2 grabs the Feather Flinger + a crate of eggs, everyone gets them
+    for p in host.players:
+        p.owned["flinger"] = False
+        p.ammo["eggs"] = 0
+    host.pickups.append(Pickup("flinger", p2.px, p2.py))
+    host.pickups.append(Pickup("eggcrate", p2.px, p2.py))
+    coop_frames(5)
+    assert all(p.owned["flinger"] for p in host.players), "weapon was not shared"
+    assert all(p.ammo["eggs"] >= 20 for p in host.players), "ammo was not shared"
+    assert c2.me.owned["flinger"] and c2.me.ammo["eggs"] >= 20, "client never saw the shared pickup"
+    assert any(c1.me.name in m[0] for m in c2.me.msgs), ("no 'X got Y' message", c2.me.msgs)
+    assert host.players[1].weapon == "flinger" or host.players[1].queued == "flinger" or host.players[1].pending == "flinger"
+    assert host.me.weapon != "flinger" and host.me.pending != "flinger", "only the picker should auto-switch"
+    print("shared pickups ok")
+
+    # what a goose holds and which way it faces are visible to the others
+    keys = [f for k, f, *_ in host.drawables(host.me) if k.startswith("goose")]
+    assert all(":" in f and "|" in f for f in keys), keys
+    assert all(f in host.A.sprites["goose%d" % (i + 1)] for i, f in enumerate(keys)), keys
+    host.players[1].weapon = "bazooka"
+    host.players[1].ang = math.atan2(host.me.py - host.players[1].py, host.me.px - host.players[1].px) + math.pi / 2
+    f = [f for k, f, *_ in host.drawables(host.me) if k == "goose1"][0]
+    assert f.startswith("bazooka:") and f.endswith(("|2", "|2m")), ("side view expected", f)
+    print("co-op facing + held weapon ok")
 
     # client opens the gazebo door
     c1.me.px, c1.me.py, c1.me.ang = 7.5, 38.7, -math.pi / 2
@@ -3022,6 +3235,29 @@ def selftest(out):
     assert len(host.players) == 1, "host did not drop P2 cleanly"
     host.leave_coop()
     print("co-op disconnect ok")
+
+    # ---- every enemy drawable resolves to a real sprite from every side
+    g.new_game(2, 1)
+    seen = set()
+    for e in g.enemies:
+        for k in range(16):
+            e.face = k * math.pi / 8
+            for kind, f, *_ in g.drawables(g.me):
+                if kind == e.kind:
+                    assert f in g.A.sprites[kind], (kind, f)
+                    seen.add(f.split("|")[-1])
+    assert {"0", "1", "2", "3", "4", "1m", "2m", "3m"} <= seen, seen
+    print("enemy facing sprites ok")
+
+    # ---- sharp text + fullscreen layouts, gamer tag cleanup
+    assert clean_name("  Two Finger Shot\x07  ") == "Two Finger Shot" and len(clean_name("x" * 40)) == NAME_MAX
+    g.draw_play()
+    shot(g, "hud_1080p_letterbox", (1920, 1080))
+    shot(g, "hud_1440x900", (1440, 900))
+    g.mode = "title"
+    g.draw_menu()
+    shot(g, "title_fullscreen", (1920, 1080))
+    print("text + fullscreen layout ok")
 
     # ---- fuzz every level
     g = host

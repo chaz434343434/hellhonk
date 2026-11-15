@@ -285,6 +285,17 @@ def make_sky(w=512, h=168, seed=20):
 
 
 # ----------------------------------------------------------------- sprites
+def squash(surf, k):
+    """Narrow a sprite horizontally (turned-away views look thinner), keeping the canvas size."""
+    if k >= 0.999:
+        return surf
+    w, h = surf.get_size()
+    small = pygame.transform.scale(surf, (max(1, int(w * k)), h))
+    out = pygame.Surface((w, h), pygame.SRCALPHA)
+    out.blit(small, ((w - small.get_width()) // 2, 0))
+    return out
+
+
 def surf_arr(s):
     rgb = pygame.surfarray.array3d(s)
     a = pygame.surfarray.array_alpha(s)
@@ -307,7 +318,7 @@ def feet(s, cx, y, spread, step, color=ORANGE, size=5):
         pygame.draw.line(s, DARKOR, (x, yy - size), (x, yy - size - 4), 2)
 
 
-def quackling(pose):
+def quackling(pose, v=0):
     """Hell duckling. poses: walk0 walk1 aim fire pain d0 d1 d2"""
     s = S(48, 48)
     if pose.startswith("d"):
@@ -319,36 +330,23 @@ def quackling(pose):
     pygame.draw.ellipse(s, (60, 10, 15), (4 + off, 22, 14, 18))
     pygame.draw.ellipse(s, (60, 10, 15), (30 + off, 22, 14, 18))
     pygame.draw.ellipse(s, body, (9 + off, 20, 30, 24))
-    pygame.draw.ellipse(s, (105, 15, 20), (15 + off, 29, 18, 13))
-    hx, hy = 24 + off, 15
+    if v < 3:
+        pygame.draw.ellipse(s, (105, 15, 20), (15 + off + view_shift(v), 29, 18, 13))
+    else:
+        pygame.draw.ellipse(s, (90, 10, 15), (12 + off, 24, 24, 14))
+    hx, hy = 24 + off + view_shift(v), 15
     pygame.draw.polygon(s, (225, 205, 165), [(hx - 7, hy - 5), (hx - 11, hy - 14), (hx - 3, hy - 8)])
     pygame.draw.polygon(s, (225, 205, 165), [(hx + 7, hy - 5), (hx + 11, hy - 14), (hx + 3, hy - 8)])
     pygame.draw.circle(s, (120, 20, 25), (hx, hy), 10)
-    eye = (255, 225, 40)
-    if pose == "pain":
-        pygame.draw.line(s, (30, 0, 0), (hx - 6, hy - 3), (hx - 2, hy - 1), 2)
-        pygame.draw.line(s, (30, 0, 0), (hx + 6, hy - 3), (hx + 2, hy - 1), 2)
-    else:
-        for ex in (-4, 4):
-            pygame.draw.circle(s, eye, (hx + ex, hy - 2), 2)
-        pygame.draw.line(s, (20, 0, 0), (hx - 7, hy - 6), (hx - 2, hy - 4), 2)
-        pygame.draw.line(s, (20, 0, 0), (hx + 7, hy - 6), (hx + 2, hy - 4), 2)
-    if pose == "fire":
-        pygame.draw.ellipse(s, ORANGE, (hx - 6, hy + 1, 12, 5))
-        pygame.draw.ellipse(s, (60, 0, 0), (hx - 4, hy + 5, 8, 5))
-        pygame.draw.ellipse(s, DARKOR, (hx - 5, hy + 9, 10, 4))
-        pygame.draw.circle(s, (255, 250, 160), (hx, hy + 7), 5)
-        pygame.draw.circle(s, (255, 255, 255), (hx, hy + 7), 2)
-    elif pose == "aim":
-        pygame.draw.ellipse(s, ORANGE, (hx - 6, hy + 1, 12, 7))
-        pygame.draw.circle(s, (255, 200, 80), (hx, hy + 5), 2)
-    else:
-        pygame.draw.ellipse(s, ORANGE, (hx - 6, hy + 1, 12, 7))
-        pygame.draw.line(s, DARKOR, (hx - 4, hy + 4), (hx + 4, hy + 4), 1)
+    glow = (255, 250, 160) if pose == "fire" else ((255, 200, 80) if pose == "aim" else None)
+    tip = bird_face(s, hx, hy, 10, v, (255, 225, 40), 2, ORANGE, 7, open_=pose == "fire", glow=glow,
+                    brow=(20, 0, 0), closed=pose == "pain")
+    if pose == "fire" and tip:
+        pygame.draw.circle(s, (255, 255, 255), tip, 2)
     return s
 
 
-def fireswan(pose):
+def fireswan(pose, v=0):
     """Black hell-swan. poses: walk0 walk1 wind fire pain d0 d1 d2"""
     s = S(48, 72)
     if pose.startswith("d"):
@@ -356,33 +354,29 @@ def fireswan(pose):
     step = {"walk0": 2, "walk1": -2}.get(pose, 0)
     body = (34, 28, 40) if pose != "pain" else (110, 80, 110)
     feet(s, 24, 71, 7, step, (200, 60, 30))
-    if pose in ("wind", "fire"):  # wings flare
+    if pose in ("wind", "fire"):
         pygame.draw.polygon(s, (20, 16, 26), [(10, 52), (0, 26), (6, 30), (2, 40), (14, 46)])
         pygame.draw.polygon(s, (20, 16, 26), [(38, 52), (47, 26), (42, 30), (46, 40), (34, 46)])
     pygame.draw.ellipse(s, body, (6, 44, 36, 24))
     pygame.draw.ellipse(s, (90, 20, 25), (12, 56, 24, 10), 2)
-    # neck as stacked circles in an S curve
+    sh = view_shift(v)
     for i in range(16):
         t = i / 15
-        x = 24 + math.sin(t * 3.2) * 4
+        x = 24 + math.sin(t * 3.2) * (4 if v in (0, 4) else 2) + sh * t * 1.5
         y = 48 - t * 34
         pygame.draw.circle(s, body, (int(x), int(y)), 5)
-    hx, hy = 25, 12
+    hx, hy = int(25 + sh * 1.5), 12
     pygame.draw.circle(s, body, (hx, hy), 7)
     eyes = (255, 40, 30) if pose != "pain" else (255, 255, 255)
-    pygame.draw.circle(s, eyes, (hx - 3, hy - 2), 2)
-    pygame.draw.circle(s, eyes, (hx + 3, hy - 2), 2)
-    pygame.draw.polygon(s, (220, 60, 30), [(hx - 3, hy + 2), (hx + 3, hy + 2), (hx, hy + 9)])
-    pygame.draw.circle(s, (10, 5, 10), (hx, hy + 2), 2)
-    if pose == "wind":
-        pygame.draw.circle(s, (255, 130, 20), (hx, hy + 12), 4)
-    if pose == "fire":
-        pygame.draw.circle(s, (255, 120, 20), (hx, hy + 13), 7)
-        pygame.draw.circle(s, (255, 230, 120), (hx, hy + 13), 4)
+    tip = bird_face(s, hx, hy, 7, v, eyes, 2, (220, 60, 30), 7, open_=pose == "fire",
+                    glow=(255, 130, 20) if pose == "wind" else None)
+    if pose == "fire" and tip:
+        pygame.draw.circle(s, (255, 120, 20), tip, 6)
+        pygame.draw.circle(s, (255, 230, 120), tip, 3)
     return s
 
 
-def brute(pose):
+def brute(pose, v=0):
     """Gander Brute: armoured charger. poses: walk0 walk1 bite0 bite1 pain d0 d1 d2"""
     s = S(64, 56)
     if pose.startswith("d"):
@@ -391,25 +385,17 @@ def brute(pose):
     body = (112, 96, 124) if pose != "pain" else (190, 160, 200)
     feet(s, 32, 55, 13, step, ORANGE, 8)
     pygame.draw.ellipse(s, body, (4, 14, 56, 38))
-    for i, y in enumerate((20, 30, 40)):  # armour bands
+    for i, y in enumerate((20, 30, 40)):
         pygame.draw.arc(s, (60, 62, 72), (8, y - 6, 48, 22), 0.3, math.pi - 0.3, 4)
         pygame.draw.circle(s, (170, 170, 180), (14 + i * 4, y + 2), 2)
-    hx, hy = 32, 16
+    hx, hy = 32 + view_shift(v) * 2, 16
     pygame.draw.circle(s, body, (hx, hy), 12)
-    pygame.draw.circle(s, (255, 200, 40), (hx - 5, hy - 5), 2)
-    pygame.draw.circle(s, (255, 200, 40), (hx + 5, hy - 5), 2)
-    pygame.draw.line(s, (30, 20, 30), (hx - 9, hy - 9), (hx - 2, hy - 6), 3)
-    pygame.draw.line(s, (30, 20, 30), (hx + 9, hy - 9), (hx + 2, hy - 6), 3)
-    if pose in ("bite0", "bite1"):
-        gape = 10 if pose == "bite1" else 6
-        pygame.draw.polygon(s, ORANGE, [(hx - 10, hy - 1), (hx + 10, hy - 1), (hx, hy + 3)])
-        pygame.draw.ellipse(s, (120, 10, 20), (hx - 9, hy + 2, 18, gape + 4))
-        for tx in range(-7, 8, 4):
-            pygame.draw.polygon(s, (240, 240, 230), [(tx + hx - 2, hy + 2), (tx + hx + 2, hy + 2), (tx + hx, hy + 6)])
-        pygame.draw.polygon(s, DARKOR, [(hx - 10, hy + gape + 5), (hx + 10, hy + gape + 5), (hx, hy + gape + 10)])
-    else:
-        pygame.draw.polygon(s, ORANGE, [(hx - 10, hy), (hx + 10, hy), (hx, hy + 10)])
-        pygame.draw.line(s, DARKOR, (hx - 8, hy + 2), (hx + 8, hy + 2), 2)
+    tip = bird_face(s, hx, hy - 1, 12, v, (255, 200, 40), 2, ORANGE, 10, open_=pose in ("bite0", "bite1"),
+                    brow=(30, 20, 30))
+    if pose in ("bite0", "bite1") and v <= 1:
+        for tx in range(-6, 7, 4):
+            pygame.draw.polygon(s, (240, 240, 230), [(hx + tx - 2 + view_shift(v), hy + 1),
+                                                     (hx + tx + 2 + view_shift(v), hy + 1), (hx + tx + view_shift(v), hy + 4)])
     return s
 
 
@@ -845,36 +831,50 @@ def make_sky_pal(w, h, top, bottom, cloud, ridge, seed, stars=False):
 
 
 # --- new enemies (all original designs) --------------------------------------
-def mallard(pose):
+def mallard(pose, v=0):
     """Mallard Gunner: green-headed drake with a pebble repeater."""
     s = S(48, 56)
     if pose.startswith("d"):
         return dead_pile(s, (110, 80, 60), int(pose[1]))
     step = {"walk0": 2, "walk1": -2}.get(pose, 0)
+    gy = 36 if pose not in ("aim", "fire") else 32
+
+    def gun():
+        if v == 0:
+            pygame.draw.rect(s, (60, 60, 66), (10, gy, 28, 8))
+            pygame.draw.circle(s, (90, 90, 96), (16, gy + 4), 6)
+            pygame.draw.circle(s, (30, 30, 34), (30, gy + 4), 3)
+            if pose == "fire":
+                pygame.draw.circle(s, (255, 240, 140), (30, gy + 4), 6)
+        else:
+            L = (0, 16, 22, 14, 10)[v]
+            x0 = 18 if v < 3 else 30
+            pygame.draw.circle(s, (90, 90, 96), (x0, gy + 4), 5)
+            for by in (gy + 2, gy + 5):
+                pygame.draw.line(s, (40, 40, 44), (x0, by), (x0 + L, by), 2)
+            if pose == "fire" and v < 3:
+                pygame.draw.circle(s, (255, 240, 140), (x0 + L + 3, gy + 3), 6)
+
+    if v >= 3:
+        gun()
     feet(s, 24, 55, 7, step)
     chest = (130, 70, 50) if pose != "pain" else (200, 150, 130)
     pygame.draw.ellipse(s, (150, 150, 140), (8, 24, 32, 28))
-    pygame.draw.ellipse(s, chest, (12, 22, 24, 16))
-    pygame.draw.rect(s, (240, 240, 240), (13, 20, 22, 3))
-    hx, hy = 24, 13
+    if v < 3:
+        pygame.draw.ellipse(s, chest, (12 + view_shift(v), 22, 24, 16))
+        pygame.draw.rect(s, (240, 240, 240), (13 + view_shift(v), 20, 22, 3))
+    else:
+        pygame.draw.rect(s, (240, 240, 240), (13, 20, 22, 3))
+    hx, hy = 24 + view_shift(v), 13
     pygame.draw.circle(s, (20, 110, 50), (hx, hy), 10)
     pygame.draw.circle(s, (60, 170, 90), (hx - 3, hy - 4), 3)
-    for ex in (-4, 4):
-        pygame.draw.circle(s, (255, 60, 30), (hx + ex, hy - 1), 2)
-    pygame.draw.ellipse(s, (220, 190, 40), (hx - 5, hy + 2, 10, 6))
-    # repeater: drum + barrels held at the belly
-    gy = 36 if pose not in ("aim", "fire") else 32
-    pygame.draw.rect(s, (60, 60, 66), (10, gy, 28, 8))
-    pygame.draw.circle(s, (90, 90, 96), (16, gy + 4), 6)
-    for by in (gy + 1, gy + 4):
-        pygame.draw.line(s, (40, 40, 44), (24, by), (40, by), 2)
-    if pose == "fire":
-        pygame.draw.circle(s, (255, 240, 140), (42, gy + 3), 6)
-        pygame.draw.circle(s, (255, 255, 255), (42, gy + 3), 3)
+    bird_face(s, hx, hy, 10, v, (255, 60, 30), 2, (220, 190, 40), 6, closed=pose == "pain")
+    if v < 3:
+        gun()
     return s
 
 
-def pelican(pose):
+def pelican(pose, v=0):
     """Pelican Bomber: lobs egg bombs from its pouch."""
     s = S(56, 64)
     if pose.startswith("d"):
@@ -886,19 +886,22 @@ def pelican(pose):
         pygame.draw.polygon(s, (60, 60, 66), [(10, 40), (0, 22), (14, 34)])
         pygame.draw.polygon(s, (60, 60, 66), [(46, 40), (55, 22), (42, 34)])
     pygame.draw.ellipse(s, body, (8, 30, 40, 30))
-    pygame.draw.ellipse(s, body, (18, 4, 20, 20))
-    for ex in (-4, 4):
-        pygame.draw.circle(s, (230, 40, 20), (28 + ex, 11), 2)
+    hx, hy = 28 + view_shift(v) * 2, 14
+    pygame.draw.circle(s, body, (hx, hy), 10)
+    tip = bird_face(s, hx, hy, 10, v, (230, 40, 20), 2, (240, 150, 50), 14, open_=pose == "fire")
     pouch = 18 if pose == "wind" else 12
-    pygame.draw.polygon(s, (240, 150, 50), [(22, 16), (34, 16), (30, 30 + pouch // 2), (26, 30 + pouch // 2)])
-    pygame.draw.ellipse(s, (240, 120, 60), (21, 22, 14, pouch))
-    if pose == "fire":
-        pygame.draw.ellipse(s, (250, 245, 230), (22, 18, 12, 14))
-        pygame.draw.circle(s, (255, 120, 20), (28, 18), 3)
+    if v <= 1:
+        bx = hx + (0 if v == 0 else 5)
+        pygame.draw.ellipse(s, (240, 120, 60), (bx - 7, hy + 8, 14, pouch))
+    elif v == 2:
+        pygame.draw.ellipse(s, (240, 120, 60), (hx + 7, hy + 4, 14, pouch * 2 // 3))
+    if pose == "fire" and tip:
+        pygame.draw.ellipse(s, (250, 245, 230), (tip[0] - 5, tip[1] - 6, 10, 12))
+        pygame.draw.circle(s, (255, 120, 20), (tip[0], tip[1] - 6), 3)
     return s
 
 
-def gosling(pose):
+def gosling(pose, v=0):
     """Hell gosling: small, fast, bitey."""
     s = S(28, 26)
     if pose.startswith("d"):
@@ -907,26 +910,20 @@ def gosling(pose):
     body = (240, 210, 70) if pose != "pain" else (255, 255, 200)
     feet(s, 14, 25, 4, step, ORANGE, 3)
     pygame.draw.ellipse(s, body, (4, 10, 20, 14))
-    pygame.draw.circle(s, body, (14, 9), 7)
-    for ex in (-3, 3):
-        pygame.draw.circle(s, (200, 0, 0), (14 + ex, 8), 2)
-    if pose in ("bite0", "bite1"):
-        g = 3 if pose == "bite1" else 1
-        pygame.draw.polygon(s, ORANGE, [(10, 11), (18, 11), (14, 13)])
-        pygame.draw.polygon(s, (120, 0, 0), [(11, 13), (17, 13), (14, 13 + g + 2)])
-    else:
-        pygame.draw.polygon(s, ORANGE, [(10, 11), (18, 11), (14, 15)])
+    hx, hy = 14 + view_shift(v), 9
+    pygame.draw.circle(s, body, (hx, hy), 7)
+    bird_face(s, hx, hy, 7, v, (200, 0, 0), 2, ORANGE, 4, open_=pose in ("bite0", "bite1"))
     return s
 
 
-def heron(pose):
+def heron(pose, v=0):
     """Heron Wraith: tall frost caster."""
     s = S(40, 84)
     if pose.startswith("d"):
         return dead_pile(s, (120, 140, 170), int(pose[1]), wide=True)
     step = {"walk0": 2, "walk1": -2}.get(pose, 0)
     body = (120, 140, 170) if pose != "pain" else (210, 220, 240)
-    for side in (-1, 1):  # stilt legs
+    for side in (-1, 1):
         x = 20 + side * 5 + step * side
         pygame.draw.line(s, (60, 60, 70), (x, 56), (x, 82), 2)
         pygame.draw.line(s, (60, 60, 70), (x - 4, 83), (x + 4, 83), 2)
@@ -934,20 +931,21 @@ def heron(pose):
     if pose in ("wind", "fire"):
         pygame.draw.polygon(s, (90, 105, 130), [(8, 40), (0, 14), (12, 34)])
         pygame.draw.polygon(s, (90, 105, 130), [(32, 40), (40, 14), (28, 34)])
-    pygame.draw.line(s, body, (20, 34), (20, 14), 5)
-    pygame.draw.circle(s, body, (20, 11), 6)
-    pygame.draw.line(s, (40, 40, 60), (14, 7), (6, 4), 2)  # plume
-    for ex in (-2, 2):
-        pygame.draw.circle(s, (120, 230, 255), (20 + ex, 10), 1)
-    pygame.draw.polygon(s, (230, 200, 80), [(18, 13), (22, 13), (20, 24)])
+    hx, hy = 20 + view_shift(v), 11
+    pygame.draw.line(s, body, (20, 34), (hx, 14), 5)
+    pygame.draw.circle(s, body, (hx, hy), 6)
+    back = -1 if v in (1, 2, 3) else 1
+    pygame.draw.line(s, (40, 40, 60), (hx - 6 * back if v else hx - 6, hy - 4), (hx - 14 * back if v else hx - 14, hy - 7), 2)
+    bird_face(s, hx, hy, 6, v, (120, 230, 255), 1, (230, 200, 80), 11)
     glow = {"wind": 4, "fire": 8}.get(pose, 0)
     if glow:
-        pygame.draw.circle(s, (150, 230, 255), (20, 26), glow)
-        pygame.draw.circle(s, (255, 255, 255), (20, 26), glow // 2)
+        gx = 20 + view_shift(v) * 2
+        pygame.draw.circle(s, (150, 230, 255), (gx, 26), glow)
+        pygame.draw.circle(s, (255, 255, 255), (gx, 26), glow // 2)
     return s
 
 
-def honkmother(pose):
+def honkmother(pose, v=0):
     """THE HONKMOTHER: crowned giant goose, the episode boss."""
     s = S(112, 112)
     if pose.startswith("d"):
@@ -962,32 +960,22 @@ def honkmother(pose):
     feet(s, 56, 111, 22, step, ORANGE, 12)
     pygame.draw.ellipse(s, (200, 196, 190), (4, 46, 30, 44))
     pygame.draw.ellipse(s, (200, 196, 190), (78, 46, 30, 44))
-    if pose in ("atk0", "atk1"):  # wings raised
+    if pose in ("atk0", "atk1"):
         pygame.draw.polygon(s, (215, 210, 205), [(18, 60), (0, 10), (30, 46)])
         pygame.draw.polygon(s, (215, 210, 205), [(94, 60), (111, 10), (82, 46)])
     pygame.draw.ellipse(s, body, (14, 44, 84, 62))
-    pygame.draw.ellipse(s, (170, 20, 30), (34, 62, 44, 30), 4)  # war paint
-    hx, hy = 56, 30
+    if v < 3:
+        pygame.draw.ellipse(s, (170, 20, 30), (34 + view_shift(v) * 2, 62, 44, 30), 4)
+    hx, hy = 56 + view_shift(v) * 3, 30
     pygame.draw.circle(s, body, (hx, hy), 20)
     pygame.draw.polygon(s, (230, 180, 40), [(hx - 18, hy - 14), (hx - 14, hy - 32), (hx - 6, hy - 20), (hx, hy - 36),
                                             (hx + 6, hy - 20), (hx + 14, hy - 32), (hx + 18, hy - 14)])
     for gx in (-10, 0, 10):
         pygame.draw.circle(s, (200, 30, 40), (hx + gx, hy - 22), 3)
-    for ex in (-8, 8):
-        pygame.draw.circle(s, (255, 140, 20), (hx + ex, hy - 4), 4)
-        pygame.draw.circle(s, (255, 250, 200), (hx + ex, hy - 4), 2)
-    pygame.draw.line(s, (40, 10, 10), (hx - 15, hy - 11), (hx - 3, hy - 7), 3)
-    pygame.draw.line(s, (40, 10, 10), (hx + 15, hy - 11), (hx + 3, hy - 7), 3)
-    if pose in ("atk0", "atk1"):
-        gape = 12 if pose == "atk1" else 6
-        pygame.draw.polygon(s, ORANGE, [(hx - 14, hy + 4), (hx + 14, hy + 4), (hx, hy + 9)])
-        pygame.draw.ellipse(s, (110, 0, 10), (hx - 12, hy + 7, 24, gape + 6))
-        pygame.draw.polygon(s, DARKOR, [(hx - 12, hy + gape + 12), (hx + 12, hy + gape + 12), (hx, hy + gape + 18)])
-        if pose == "atk1":
-            pygame.draw.circle(s, (255, 200, 60), (hx, hy + 14), 6)
-    else:
-        pygame.draw.polygon(s, ORANGE, [(hx - 14, hy + 4), (hx + 14, hy + 4), (hx, hy + 20)])
-        pygame.draw.line(s, DARKOR, (hx - 11, hy + 7), (hx + 11, hy + 7), 2)
+    tip = bird_face(s, hx, hy, 20, v, (255, 140, 20), 4, ORANGE, 18, open_=pose in ("atk0", "atk1"),
+                    brow=(40, 10, 10))
+    if pose == "atk1" and tip:
+        pygame.draw.circle(s, (255, 200, 60), tip, 6)
     return s
 
 
@@ -996,31 +984,164 @@ VEST_COLORS = [((40, 150, 130), (150, 230, 210)),    # P1 teal
                ((130, 60, 190), (210, 170, 255))]    # P3 purple
 
 
-def coop_goose(pose, vest=0):
-    """A co-op player: a white goose in a coloured feather vest holding a brass horn."""
+def coop_goose(pose, vest=0, weapon="honker", v=0):
+    """A co-op player: a white goose in a coloured vest, holding their current weapon, facing direction v."""
     vest_c, vest_hi = VEST_COLORS[vest % len(VEST_COLORS)]
     s = S(44, 60)
     if pose.startswith("d"):
         return dead_pile(s, (240, 240, 232), int(pose[1]))
     step = {"walk0": 3, "walk1": -3}.get(pose, 0)
     white = (245, 245, 238) if pose != "pain" else (255, 170, 170)
+    firing = pose == "fire"
+    if v >= 3:
+        held_weapon(s, weapon, v, 24, 41, firing)
     feet(s, 22, 59, 7, step)
     pygame.draw.ellipse(s, white, (6, 28, 32, 28))
     pygame.draw.polygon(s, vest_c, [(9, 34), (35, 34), (33, 52), (11, 52)])
     for y in (39, 45):
         pygame.draw.line(s, vest_hi, (11, y), (33, y), 1)
-    for i in range(10):  # neck
-        pygame.draw.circle(s, white, (22, 30 - i * 2), 5)
-    pygame.draw.circle(s, white, (22, 9), 7)
-    for ex in (-3, 3):
-        pygame.draw.circle(s, (20, 20, 20), (22 + ex, 8), 1)
-    pygame.draw.polygon(s, ORANGE, [(18, 11), (26, 11), (22, 18)])
-    # horn held across the body
-    pygame.draw.rect(s, (200, 160, 50), (24, 38, 14, 4))
-    pygame.draw.polygon(s, (220, 180, 60), [(36, 34), (42, 31), (42, 49), (36, 46)])
-    if pose == "fire":
-        pygame.draw.circle(s, (255, 240, 150), (42, 40), 5)
+    if v >= 3:
+        pygame.draw.line(s, vest_hi, (22, 34), (22, 52), 1)     # back seam
+    sh = view_shift(v)
+    for i in range(10):
+        pygame.draw.circle(s, white, (int(22 + sh * i / 9), 30 - i * 2), 5)
+    hx, hy = 22 + sh, 9
+    pygame.draw.circle(s, white, (hx, hy), 7)
+    bird_face(s, hx, hy, 7, v, (20, 20, 20), 1, ORANGE, 6, open_=firing and weapon == "peck")
+    if v < 3:
+        held_weapon(s, weapon, v, 24, 41, firing)
     return s
+
+
+def darker(c, k=0.72):
+    return tuple(int(v * k) for v in c[:3])
+
+
+def bird_face(s, hx, hy, r, v, eye, eye_r, beak, blen, open_=False, glow=None, brow=None, closed=False):
+    """Eyes + beak for a bird head seen from view v: 0 front, 1 three-quarter, 2 side, 3 back-quarter, 4 back.
+    Side views face +x (the caller mirrors the whole sprite for the other side).
+    Returns the beak tip (x, y), or None when the face is turned away."""
+    if v >= 3:
+        if v == 3:   # just the tip of the beak past the cheek
+            pygame.draw.polygon(s, beak, [(hx + r - 1, hy), (hx + r - 1, hy + 3), (hx + r + max(2, blen // 3), hy + 2)])
+        return None
+    ey = int(hy - r * 0.2)
+    if v == 0:
+        eyes, bx = [hx - r * 0.42, hx + r * 0.42], hx
+    elif v == 1:
+        eyes, bx = [hx + r * 0.0, hx + r * 0.58], hx + r * 0.5
+    else:
+        eyes, bx = [hx + r * 0.38], None
+    for i, ex in enumerate(eyes):
+        ex = int(ex)
+        if closed:
+            pygame.draw.line(s, (30, 0, 0), (ex - eye_r - 1, ey), (ex + eye_r + 1, ey + 1), 2)
+        else:
+            pygame.draw.circle(s, eye, (ex, ey), eye_r)
+        if brow:
+            right_eye = (v == 0 and i == 1)
+            d = -1 if right_eye else 1
+            pygame.draw.line(s, brow, (ex - 3 * d, ey - eye_r - 2), (ex + 2 * d, ey - eye_r), 2)
+    dk = darker(beak)
+    if bx is not None:
+        w = r * (0.6 if v == 0 else 0.5)
+        if open_:
+            pygame.draw.polygon(s, beak, [(bx - w, hy + 1), (bx + w, hy + 1), (bx, hy + 1 + blen * 0.5)])
+            pygame.draw.ellipse(s, (70, 0, 10), (bx - w * 0.7, hy + 2, w * 1.4, max(3, blen * 0.7)))
+            pygame.draw.polygon(s, dk, [(bx - w * 0.8, hy + 2 + blen * 0.6), (bx + w * 0.8, hy + 2 + blen * 0.6),
+                                        (bx, hy + 2 + blen)])
+        else:
+            pygame.draw.polygon(s, beak, [(bx - w, hy + 1), (bx + w, hy + 1), (bx, hy + 1 + blen)])
+            pygame.draw.line(s, dk, (bx - w * 0.7, hy + 3), (bx + w * 0.7, hy + 3), 1)
+        tip = (int(bx), int(hy + 2 + blen * 0.55))
+    else:
+        x0 = hx + r * 0.7
+        if open_:
+            pygame.draw.polygon(s, beak, [(x0, hy - 1), (x0, hy + 2), (x0 + blen, hy)])
+            pygame.draw.polygon(s, (70, 0, 10), [(x0, hy + 2), (x0, hy + 3), (x0 + blen * 0.8, hy + 3)])
+            pygame.draw.polygon(s, dk, [(x0, hy + 3), (x0, hy + 6), (x0 + blen * 0.8, hy + 5)])
+        else:
+            pygame.draw.polygon(s, beak, [(x0, hy - 1), (x0, hy + 4), (x0 + blen, hy + 2)])
+        tip = (int(x0 + blen), int(hy + 2))
+    if glow:
+        pygame.draw.circle(s, glow, tip, max(2, int(r * 0.4)))
+    return tip
+
+
+WEAPON_LEN = {"honker": 16, "egggun": 16, "flinger": 16, "bazooka": 20, "megahonk": 18}
+
+
+def weapon_profile(s, w, x0, y, L, firing):
+    """Side view of a held weapon pointing +x, starting at x0."""
+    if w == "honker":
+        pygame.draw.rect(s, (200, 160, 50), (x0, y - 1, int(L * 0.6), 3))
+        pygame.draw.polygon(s, (225, 185, 60), [(x0 + L * 0.6, y - 1), (x0 + L, y - 5), (x0 + L, y + 6), (x0 + L * 0.6, y + 2)])
+    elif w == "egggun":
+        pygame.draw.rect(s, (120, 75, 40), (x0 - 5, y - 1, 7, 5))
+        pygame.draw.rect(s, (185, 145, 55), (x0, y - 3, L, 2))
+        pygame.draw.rect(s, (185, 145, 55), (x0, y + 1, L, 2))
+        pygame.draw.ellipse(s, (250, 245, 230), (x0 + 3, y - 1, 5, 4))
+    elif w == "flinger":
+        pygame.draw.circle(s, (60, 60, 66), (int(x0 + 3), int(y)), 4)
+        for i in range(3):
+            pygame.draw.rect(s, (120, 120, 128), (x0 + 6, y - 3 + i * 2, L - 6, 1))
+        pygame.draw.polygon(s, (240, 240, 232), [(x0 + L - 3, y - 4), (x0 + L, y - 6), (x0 + L, y - 3)])
+    elif w == "bazooka":
+        pygame.draw.rect(s, (95, 75, 52), (x0 - 4, y - 3, L + 4, 6))
+        pygame.draw.ellipse(s, (205, 150, 70), (x0 + L - 2, y - 3, 7, 6))
+    elif w == "megahonk":
+        pygame.draw.polygon(s, (220, 180, 60), [(x0, y - 2), (x0 + L * 0.5, y - 2), (x0 + L, y - 8),
+                                                (x0 + L, y + 9), (x0 + L * 0.5, y + 3), (x0, y + 3)])
+        pygame.draw.ellipse(s, (90, 255, 160), (x0 + L - 3, y - 6, 4, 13))
+    if firing:
+        pygame.draw.circle(s, (255, 240, 150), (int(x0 + L + 3), int(y)), 5)
+        pygame.draw.circle(s, (255, 255, 230), (int(x0 + L + 3), int(y)), 2)
+
+
+def weapon_endon(s, w, cx, cy, firing):
+    """Front view: the weapon is pointed straight at you."""
+    if w == "honker":
+        pygame.draw.circle(s, (225, 185, 60), (cx, cy), 6)
+        pygame.draw.circle(s, (60, 35, 10), (cx, cy), 3)
+    elif w == "egggun":
+        for dx in (-3, 3):
+            pygame.draw.circle(s, (185, 145, 55), (cx + dx, cy), 3)
+            pygame.draw.circle(s, (40, 25, 10), (cx + dx, cy), 1)
+    elif w == "flinger":
+        pygame.draw.circle(s, (60, 60, 66), (cx, cy), 6)
+        for dx, dy in ((-2, -2), (2, -2), (0, 2)):
+            pygame.draw.circle(s, (130, 130, 138), (cx + dx, cy + dy), 2)
+            pygame.draw.circle(s, (20, 20, 22), (cx + dx, cy + dy), 1)
+    elif w == "bazooka":
+        pygame.draw.circle(s, (95, 75, 52), (cx, cy), 6)
+        pygame.draw.circle(s, (205, 150, 70), (cx, cy), 4)
+    elif w == "megahonk":
+        pygame.draw.circle(s, (220, 180, 60), (cx, cy), 8)
+        pygame.draw.circle(s, (90, 255, 160), (cx, cy), 5)
+    if firing:
+        pygame.draw.circle(s, (255, 240, 150), (cx, cy), 8)
+        pygame.draw.circle(s, (255, 255, 230), (cx, cy), 4)
+
+
+def held_weapon(s, w, v, cx, cy, firing):
+    if w == "peck":
+        return
+    L = WEAPON_LEN[w]
+    if v == 0:
+        weapon_endon(s, w, cx, cy, firing)
+    elif v in (1, 3):
+        weapon_profile(s, w, cx - 2, cy, int(L * 0.7), firing and v == 1)
+    elif v == 2:
+        weapon_profile(s, w, cx - 4, cy, L, firing)
+    else:                               # from behind: only the muzzle pokes out past the shoulder
+        weapon_profile(s, w, cx + 6, cy - 2, int(L * 0.5), False)
+
+
+def view_shift(v):
+    return (0, 2, 4, 2, 0)[v]
+
+
+# --- enemies with facing --------------------------------------------------------
 
 
 def item2(kind):
@@ -1271,21 +1392,37 @@ class Assets:
             "dusk": make_sky_pal(512, view_h, (40, 20, 60), (230, 120, 70), (90, 40, 80), (25, 12, 20), 23),
         }
 
-        def frames(fn, poses):
-            return {p: surf_arr(fn(p)) for p in poses}
+        def dirframes(fn, poses):
+            """Every pose from 5 views (front, 3/4, side, back-3/4, back); 3/4 and side views also mirrored.
+            Keys look like 'walk0|2' or 'walk0|2m'; death poses ('d0'..) have no direction."""
+            out = {}
+            for p in poses:
+                if p.startswith("d"):
+                    out[p] = surf_arr(fn(p, 0))
+                    continue
+                for v in range(5):
+                    surf = squash(fn(p, v), (1.0, 0.92, 0.82, 0.92, 1.0)[v])
+                    out["%s|%d" % (p, v)] = surf_arr(surf)
+                    if v in (1, 2, 3):
+                        out["%s|%dm" % (p, v)] = surf_arr(pygame.transform.flip(surf, True, False))
+            return out
 
         self.sprites = {
-            "quackling": frames(quackling, ["walk0", "walk1", "aim", "fire", "pain", "d0", "d1", "d2"]),
-            "fireswan": frames(fireswan, ["walk0", "walk1", "wind", "fire", "pain", "d0", "d1", "d2"]),
-            "brute": frames(brute, ["walk0", "walk1", "bite0", "bite1", "pain", "d0", "d1", "d2"]),
-            "mallard": frames(mallard, ["walk0", "walk1", "aim", "fire", "pain", "d0", "d1", "d2"]),
-            "pelican": frames(pelican, ["walk0", "walk1", "wind", "fire", "pain", "d0", "d1", "d2"]),
-            "gosling": frames(gosling, ["walk0", "walk1", "bite0", "bite1", "pain", "d0", "d1", "d2"]),
-            "heron": frames(heron, ["walk0", "walk1", "wind", "fire", "pain", "d0", "d1", "d2"]),
-            "honkmother": frames(honkmother, ["walk0", "walk1", "atk0", "atk1", "pain", "d0", "d1", "d2"]),
+            "quackling": dirframes(quackling, ["walk0", "walk1", "aim", "fire", "pain", "d0", "d1", "d2"]),
+            "fireswan": dirframes(fireswan, ["walk0", "walk1", "wind", "fire", "pain", "d0", "d1", "d2"]),
+            "brute": dirframes(brute, ["walk0", "walk1", "bite0", "bite1", "pain", "d0", "d1", "d2"]),
+            "mallard": dirframes(mallard, ["walk0", "walk1", "aim", "fire", "pain", "d0", "d1", "d2"]),
+            "pelican": dirframes(pelican, ["walk0", "walk1", "wind", "fire", "pain", "d0", "d1", "d2"]),
+            "gosling": dirframes(gosling, ["walk0", "walk1", "bite0", "bite1", "pain", "d0", "d1", "d2"]),
+            "heron": dirframes(heron, ["walk0", "walk1", "wind", "fire", "pain", "d0", "d1", "d2"]),
+            "honkmother": dirframes(honkmother, ["walk0", "walk1", "atk0", "atk1", "pain", "d0", "d1", "d2"]),
         }
         for i in range(len(VEST_COLORS)):
-            self.sprites["goose%d" % i] = frames(lambda p, i=i: coop_goose(p, i), ["walk0", "walk1", "fire", "pain", "d2"])
+            g = {}
+            for w in ("peck", "honker", "egggun", "flinger", "bazooka", "megahonk"):
+                fr = dirframes(lambda p, v, i=i, w=w: coop_goose(p, i, w, v), ["walk0", "walk1", "fire", "pain", "d2"])
+                g.update({("d2" if k == "d2" else "%s:%s" % (w, k)): a for k, a in fr.items()})
+            self.sprites["goose%d" % i] = g
         for k in ("bread", "loaf", "crumbs", "vest", "feather", "pebbles", "pebblebox", "eggs", "egggun", "ykey", "bkey"):
             self.sprites[k] = {"0": surf_arr(item(k))}
         for k in ("downjacket", "eggcrate", "baguette", "baguettes", "corn", "cornsack", "flinger", "bazooka",
