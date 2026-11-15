@@ -147,6 +147,28 @@ def build_sfx():
     s["hoot"] = norm(mix(*[np.pad(sweep(f, f * 0.92, 0.22, 5), (int(SR * 0.26 * i), 0)) for i, f in enumerate((420, 380))]))
     s["king_sight"] = norm(mix(honk(110, 1.4, glide=3, buzz=0.9, bright=0.7), honk(165, 1.4, glide=3, buzz=0.5) * 0.6,
                                noise_burst(1.4, 30, 500, 1.6) * 0.5))
+    # per-episode weapons
+    s["harpoon"] = norm(mix(noise_burst(0.08, 300, 3000, 30), sweep(500, 140, 0.25, 9) * 0.7))
+    s["blunderbuss"] = norm(mix(noise_burst(0.6, 40, 2200, 5) * 1.2, sweep(110, 35, 0.4, 7)))
+    s["rivet"] = norm(mix(noise_burst(0.05, 2000, 9000, 60), sweep(1200, 900, 0.04, 40) * 0.4))
+    s["tide"] = norm(mix(fft_filter(rng.normal(0, 1, int(SR * 0.9)), 80, 1400) * np.exp(-t_(0.9) * 2.5) * np.sin(np.pi * t_(0.9) / 0.9),
+                         sweep(220, 70, 0.9, 2) * 0.5))
+    s["ember"] = norm(mix(noise_burst(0.3, 400, 3000, 8), sweep(300, 900, 0.2, 10) * 0.4))
+    s["feather"] = norm(noise_burst(0.18, 2500, 9000, 14) * 0.8)
+    s["ashrep"] = norm(mix(noise_burst(0.06, 900, 6000, 45), sweep(400, 250, 0.05, 30) * 0.5))
+    s["comet"] = norm(mix(sweep(1800, 300, 0.6, 1.5) * 0.6, noise_burst(0.6, 2000, 8000, 3) * 0.3))
+    s["sunburst"] = norm(mix(sweep(200, 1200, 0.5, 2) * 0.5, np.pad(noise_burst(0.7, 100, 4000, 3), (int(SR * 0.3), 0))))
+    # per-episode monsters
+    s["coot"] = norm(mix(honk(520, 0.08, glide=1, buzz=1.0, bright=1.5), np.pad(honk(500, 0.08, glide=2, buzz=1.0, bright=1.5), (int(SR * 0.1), 0))))
+    s["gull"] = norm(honk(900, 0.35, glide=-6, vib=11, bright=1.6) * 0.8)
+    s["knight"] = norm(mix(honk(180, 0.5, glide=4, buzz=0.4), noise_burst(0.5, 200, 2500, 6) * 0.4))
+    s["grebe"] = norm(mix(*[np.pad(honk(f, 0.1, glide=1, bright=1.3), (int(SR * 0.11 * i), 0)) for i, f in enumerate((640, 700, 760))]))
+    s["kf"] = norm(mix(sweep(2500, 3200, 0.12, 8) * 0.6, np.pad(sweep(2600, 3300, 0.12, 8) * 0.6, (int(SR * 0.15), 0))))
+    s["snipe"] = norm(mix(noise_burst(0.15, 1500, 9000, 20), sweep(3000, 500, 0.2, 10) * 0.6))
+    s["wren"] = norm(mix(*[np.pad(sweep(f, f * 1.2, 0.05, 30), (int(SR * 0.06 * i), 0)) for i, f in enumerate((2400, 2700, 3000, 2600))]))
+    s["vulture"] = norm(mix(noise_burst(0.7, 300, 2500, 3), honk(150, 0.7, glide=5, buzz=0.9, bright=0.6) * 0.6))
+    s["phoenix"] = norm(mix(honk(700, 0.6, glide=-8, vib=8, bright=1.4), noise_burst(0.6, 1500, 6000, 4) * 0.4))
+    s["raven"] = norm(mix(honk(330, 0.22, glide=3, buzz=1.0, bright=0.9), np.pad(honk(310, 0.25, glide=4, buzz=1.0, bright=0.9), (int(SR * 0.28), 0))))
     s["gander_sight"] = norm(mix(honk(70, 2.0, glide=5, buzz=0.6, bright=0.5), sweep(900, 200, 2.0, 1.2) * 0.4,
                                  noise_burst(2.0, 20, 300, 1.0) * 0.6))
     return s

@@ -1126,6 +1126,17 @@ def weapon_endon(s, w, cx, cy, firing):
 def held_weapon(s, w, v, cx, cy, firing):
     if w == "peck":
         return
+    if w in NEW_WEAPON_LEN:
+        L = NEW_WEAPON_LEN[w]
+        if v == 0:
+            new_weapon_endon(s, w, cx, cy, firing)
+        elif v in (1, 3):
+            new_weapon_profile(s, w, cx - 2, cy, int(L * 0.7), firing and v == 1)
+        elif v == 2:
+            new_weapon_profile(s, w, cx - 4, cy, L, firing)
+        else:
+            new_weapon_profile(s, w, cx + 6, cy - 2, int(L * 0.5), False)
+        return
     L = WEAPON_LEN[w]
     if v == 0:
         weapon_endon(s, w, cx, cy, firing)
@@ -1575,6 +1586,462 @@ def fx3(kind, frame):
     raise KeyError(kind)
 
 
+# ----------------------------------------------------------------- per-episode enemies (all original designs)
+def gen_bird(pose, v, cfg):
+    """Shared painter for the episode 2/3 birds. cfg holds sizes and colours; cfg['extra'] adds signature details."""
+    W, H = cfg["size"]
+    s = S(W, H)
+    if pose.startswith("d"):
+        return dead_pile(s, cfg["body"], int(pose[1]), wide=W > 50)
+    pain = pose == "pain"
+    atk = pose in ("aim", "fire", "wind", "atk0", "atk1", "bite0", "bite1")
+    step = {"walk0": 2, "walk1": -2}.get(pose, 0) * max(1, W // 40)
+    body = cfg["body"] if not pain else tuple(min(255, c + 90) for c in cfg["body"])
+    bx, by, bw, bh = cfg["torso"]
+    cx = bx + bw // 2
+    if cfg.get("long_legs"):
+        for side in (-1, 1):
+            x = cx + side * bw // 5 + step * side
+            pygame.draw.line(s, cfg["feet"], (x, by + bh - 2), (x, H - 2), 2)
+            pygame.draw.line(s, cfg["feet"], (x - 3, H - 1), (x + 3, H - 1), 2)
+    else:
+        feet(s, cx, H - 1, max(4, bw // 5), step, cfg["feet"], max(3, bw // 6))
+    wing = cfg.get("wing", darker(cfg["body"]))
+    if atk and cfg.get("flare", True):
+        pygame.draw.polygon(s, wing, [(bx + 4, by + bh // 2), (bx - bw // 4, by - bh // 3), (bx + bw // 4, by + bh // 4)])
+        pygame.draw.polygon(s, wing, [(bx + bw - 4, by + bh // 2), (bx + bw + bw // 4, by - bh // 3), (bx + bw * 3 // 4, by + bh // 4)])
+    else:
+        pygame.draw.ellipse(s, wing, (bx - 3, by + 4, bw // 3, bh - 6))
+        pygame.draw.ellipse(s, wing, (bx + bw - bw // 3 + 3, by + 4, bw // 3, bh - 6))
+    pygame.draw.ellipse(s, body, (bx, by, bw, bh))
+    if v < 3 and cfg.get("belly"):
+        pygame.draw.ellipse(s, cfg["belly"], (bx + bw // 5 + view_shift(v), by + bh // 4, bw * 3 // 5, bh * 2 // 3))
+    sh = view_shift(v) * cfg.get("shift", 1)
+    hx, hy, hr = cx + sh, cfg["head_y"], cfg["head_r"]
+    if cfg.get("neck"):
+        for i in range(cfg["neck"]):
+            pygame.draw.circle(s, body, (int(cx + sh * i / max(1, cfg["neck"] - 1)), by + 2 - i * 2), max(3, hr // 2))
+    pygame.draw.circle(s, cfg.get("head", body), (hx, hy), hr)
+    tip = bird_face(s, hx, hy, hr, v, cfg["eye"], cfg.get("eye_r", 2), cfg["beak"], cfg["blen"],
+                    open_=pose in ("fire", "bite1", "atk1"), brow=cfg.get("brow"), closed=pain)
+    if cfg.get("extra"):
+        cfg["extra"](s, pose, v, hx, hy, hr, tip, bx, by, bw, bh)
+    return s
+
+
+def _coot_extra(s, pose, v, hx, hy, hr, tip, bx, by, bw, bh):
+    if v < 3:   # the coot's white face shield
+        pygame.draw.ellipse(s, (245, 245, 245), (hx - 3 + (v and 3), hy - hr + 1, 6, 6))
+    gy = by + bh // 2
+    if v == 0:
+        pygame.draw.rect(s, (90, 70, 50), (bx + 6, gy, bw - 12, 5))
+        pygame.draw.circle(s, (40, 40, 44), (bx + bw // 2, gy + 2), 3)
+    elif v < 3:
+        pygame.draw.rect(s, (90, 70, 50), (bx + bw // 2, gy, 18, 4))
+    if pose == "fire" and v < 3:
+        fx_ = bx + bw // 2 + (0 if v == 0 else 20)
+        pygame.draw.circle(s, (255, 240, 150), (fx_, gy + 2), 5)
+
+
+def _gull_extra(s, pose, v, hx, hy, hr, tip, bx, by, bw, bh):
+    pygame.draw.rect(s, (90, 95, 105), (bx + 2, by + 2, bw - 4, 4))       # grey mantle
+    if tip and pose == "bite1":
+        pygame.draw.circle(s, (210, 30, 30), tip, 2)
+
+
+def _knight_extra(s, pose, v, hx, hy, hr, tip, bx, by, bw, bh):
+    steel = (150, 156, 170)
+    pygame.draw.arc(s, steel, (bx + 4, by + 4, bw - 8, bh - 4), 0.3, math.pi - 0.3, 4)
+    pygame.draw.rect(s, steel, (hx - hr, hy - hr, hr * 2, hr))             # helm
+    pygame.draw.line(s, (40, 40, 50), (hx - hr + 2, hy - 2), (hx + hr - 2, hy - 2), 2)
+    pygame.draw.polygon(s, (200, 40, 40), [(hx, hy - hr), (hx - 3, hy - hr - 9), (hx + 3, hy - hr - 9)])
+    if v <= 2:                                                             # lance
+        lx = bx + bw - 6 if v else bx + bw // 2 + 8
+        pygame.draw.line(s, (200, 190, 150), (lx, by + bh), (lx + (12 if v else 0), by - 18), 3)
+        pygame.draw.polygon(s, steel, [(lx + (12 if v else 0) - 3, by - 16), (lx + (12 if v else 0) + 3, by - 16),
+                                       (lx + (12 if v else 0), by - 26)])
+
+
+def _grebe_extra(s, pose, v, hx, hy, hr, tip, bx, by, bw, bh):
+    for dx in (-hr, hr):   # golden ear tufts
+        pygame.draw.polygon(s, (230, 180, 60), [(hx + dx // 2, hy - 2), (hx + dx, hy - hr - 4), (hx + dx // 3, hy - hr)])
+    if pose in ("wind", "fire") and v < 3:
+        gx = (tip[0] if tip else hx)
+        pygame.draw.circle(s, (70, 90, 60), (gx, hy - hr - 8), 5)
+        pygame.draw.line(s, (255, 200, 60), (gx, hy - hr - 13), (gx + 2, hy - hr - 16), 2)
+
+
+def _kingfisher_extra(s, pose, v, hx, hy, hr, tip, bx, by, bw, bh):
+    pygame.draw.rect(s, (230, 120, 40), (bx + 4, by + bh // 3, bw - 8, bh // 3))   # orange chest
+    if pose == "aim" and tip:
+        pygame.draw.circle(s, (255, 255, 255), tip, 3)                             # the glint before the shot
+        pygame.draw.circle(s, (120, 220, 255), tip, 1)
+    if pose == "fire" and tip:
+        pygame.draw.circle(s, (180, 240, 255), tip, 6)
+
+
+def _wren_extra(s, pose, v, hx, hy, hr, tip, bx, by, bw, bh):
+    for i in range(3):   # embers in the feathers
+        pygame.draw.circle(s, (255, 140 + i * 30, 30), (bx + 4 + i * 5, by + 4 + (i % 2) * 4), 2)
+    if pose in ("bite0", "bite1"):
+        pygame.draw.circle(s, (255, 180, 40), (bx + bw // 2, by + bh // 2), bw // 2 - 1, 2)
+
+
+def _vulture_extra(s, pose, v, hx, hy, hr, tip, bx, by, bw, bh):
+    pygame.draw.ellipse(s, (235, 225, 205), (hx - hr - 2, hy + hr - 3, hr * 2 + 4, 7))   # feather ruff
+    if v <= 2:   # scythe
+        x = bx + bw - 4 if v else bx + bw // 2 + 10
+        pygame.draw.line(s, (110, 80, 50), (x, by + bh), (x, by - 14), 3)
+        pygame.draw.arc(s, (200, 205, 215), (x - 16, by - 20, 18, 14), 0.2, math.pi, 3)
+
+
+def _phoenix_extra(s, pose, v, hx, hy, hr, tip, bx, by, bw, bh):
+    for i, c in enumerate(((255, 220, 80), (255, 150, 40), (230, 60, 30))):     # flame crest
+        pygame.draw.polygon(s, c, [(hx - 4 + i * 4, hy - hr + 1), (hx - 2 + i * 4, hy - hr - 9 + i * 2), (hx + i * 4, hy - hr + 1)])
+    pygame.draw.polygon(s, (255, 150, 40), [(bx + bw // 2 - 6, by + bh - 2), (bx + bw // 2, by + bh + 8), (bx + bw // 2 + 6, by + bh - 2)])
+    if pose == "fire" and tip:
+        pygame.draw.circle(s, (255, 120, 20), tip, 5)
+        pygame.draw.circle(s, (255, 240, 150), tip, 2)
+
+
+def _raven_extra(s, pose, v, hx, hy, hr, tip, bx, by, bw, bh):
+    pygame.draw.polygon(s, (60, 20, 90), [(bx, by + bh), (bx + bw, by + bh), (bx + bw // 2, by + 10)], 0)  # hex cloak
+    if v < 3:
+        pygame.draw.circle(s, (170, 60, 255), (hx, hy - hr - 4), 3)
+    if pose in ("wind", "fire"):
+        pygame.draw.circle(s, (150, 40, 230), (bx + bw // 2, by - 6), 7 if pose == "fire" else 4, 2)
+
+
+ENEMY_CFG = {
+    "coot": dict(size=(40, 48), torso=(8, 20, 24, 22), body=(40, 40, 46), belly=(60, 60, 66), feet=(120, 160, 60),
+                 head_y=12, head_r=8, eye=(230, 30, 30), beak=(240, 240, 240), blen=5, brow=(10, 10, 10), extra=_coot_extra),
+    "gull": dict(size=(32, 30), torso=(5, 12, 22, 14), body=(235, 235, 235), wing=(130, 135, 145), feet=(230, 170, 60),
+                 head_y=8, head_r=6, eye=(240, 200, 30), beak=(240, 200, 40), blen=6, extra=_gull_extra),
+    "swanknight": dict(size=(56, 72), torso=(8, 34, 40, 32), body=(240, 240, 236), belly=(220, 220, 230), feet=(40, 40, 40),
+                       neck=10, head_y=12, head_r=7, eye=(30, 30, 30), beak=(230, 90, 30), blen=7, flare=False,
+                       extra=_knight_extra),
+    "grebe": dict(size=(44, 52), torso=(8, 22, 28, 26), body=(70, 50, 40), belly=(200, 120, 70), feet=(60, 60, 60),
+                  head_y=12, head_r=8, eye=(230, 30, 30), beak=(30, 30, 30), blen=7, extra=_grebe_extra),
+    "kingfisher": dict(size=(36, 50), torso=(7, 20, 22, 24), body=(40, 110, 200), feet=(220, 80, 40),
+                       head_y=11, head_r=8, eye=(20, 20, 20), beak=(30, 30, 30), blen=12, flare=False,
+                       extra=_kingfisher_extra),
+    "wren": dict(size=(26, 24), torso=(4, 9, 18, 13), body=(150, 70, 40), wing=(110, 50, 30), feet=(90, 60, 40),
+                 head_y=7, head_r=5, eye=(255, 220, 60), beak=(60, 40, 30), blen=3, extra=_wren_extra),
+    "vulture": dict(size=(60, 64), torso=(10, 24, 40, 34), body=(70, 55, 50), belly=(90, 70, 60), feet=(150, 140, 120),
+                    head_y=14, head_r=8, head=(220, 120, 110), eye=(255, 220, 40), beak=(230, 210, 170), blen=10,
+                    brow=(60, 20, 20), extra=_vulture_extra),
+    "phoenix": dict(size=(44, 56), torso=(8, 24, 28, 26), body=(220, 80, 30), belly=(255, 180, 60), feet=(120, 60, 30),
+                    neck=4, head_y=12, head_r=7, eye=(255, 255, 200), beak=(255, 210, 60), blen=7, extra=_phoenix_extra),
+    "raven": dict(size=(44, 56), torso=(8, 22, 28, 30), body=(25, 22, 32), wing=(15, 12, 22), feet=(50, 50, 60),
+                  head_y=12, head_r=8, eye=(190, 90, 255), beak=(45, 45, 55), blen=9, extra=_raven_extra),
+    "crow": dict(size=(30, 28), torso=(5, 11, 20, 14), body=(30, 30, 38), feet=(60, 60, 70),
+                 head_y=8, head_r=6, eye=(240, 240, 240), eye_r=1, beak=(50, 50, 60), blen=6),
+}
+
+
+def episode_enemy(kind):
+    cfg = ENEMY_CFG[kind]
+    return lambda pose, v=0: gen_bird(pose, v, cfg)
+
+
+# ----------------------------------------------------------------- per-episode weapons
+NEW_WEAPON_LEN = {"harpoon": 22, "blunderbuss": 16, "rivetgun": 15, "depthcharger": 18, "tidalhorn": 18,
+                  "embersling": 14, "featherfan": 14, "ashrepeater": 17, "cometcaller": 20, "sunburst": 14}
+
+
+def new_weapon_profile(s, w, x0, y, L, firing):
+    if w == "harpoon":
+        pygame.draw.rect(s, (110, 80, 50), (x0 - 4, y, 8, 4))
+        pygame.draw.rect(s, (140, 145, 155), (x0, y - 1, L, 3))
+        pygame.draw.polygon(s, (220, 220, 230), [(x0 + L, y - 3), (x0 + L + 5, y), (x0 + L, y + 3)])
+    elif w == "blunderbuss":
+        pygame.draw.rect(s, (110, 70, 40), (x0 - 5, y, 9, 4))
+        pygame.draw.polygon(s, (190, 140, 60), [(x0, y - 1), (x0 + L * 0.6, y - 1), (x0 + L, y - 5), (x0 + L, y + 6), (x0 + L * 0.6, y + 2), (x0, y + 2)])
+    elif w == "rivetgun":
+        pygame.draw.rect(s, (90, 92, 100), (x0, y - 3, L - 4, 7))
+        pygame.draw.rect(s, (230, 190, 40), (x0 + 2, y - 3, L - 8, 2))
+        pygame.draw.rect(s, (60, 60, 66), (x0 + L - 4, y - 1, 5, 3))
+    elif w == "depthcharger":
+        pygame.draw.rect(s, (60, 90, 60), (x0, y - 4, L, 8), border_radius=3)
+        pygame.draw.circle(s, (40, 60, 40), (int(x0 + 4), int(y)), 5)
+    elif w == "tidalhorn":
+        pygame.draw.polygon(s, (90, 170, 220), [(x0, y - 2), (x0 + L, y - 8), (x0 + L, y + 8), (x0, y + 3)])
+        for i in range(3):
+            pygame.draw.line(s, (200, 240, 255), (x0 + 5 + i * 4, y - 3 - i), (x0 + 5 + i * 4, y + 3 + i), 1)
+    elif w == "embersling":
+        pygame.draw.line(s, (120, 80, 40), (x0, y + 4), (x0 + L * 0.6, y), 3)
+        pygame.draw.line(s, (120, 80, 40), (x0 + L * 0.6, y), (x0 + L, y - 5), 2)
+        pygame.draw.line(s, (120, 80, 40), (x0 + L * 0.6, y), (x0 + L, y + 5), 2)
+        pygame.draw.circle(s, (255, 140, 30), (int(x0 + L), int(y)), 3)
+    elif w == "featherfan":
+        for i in range(5):
+            a = -0.6 + i * 0.3
+            pygame.draw.line(s, (245, 240, 220), (x0, y), (x0 + math.cos(a) * L, y + math.sin(a) * L), 3)
+    elif w == "ashrepeater":
+        pygame.draw.rect(s, (45, 40, 44), (x0, y - 3, L, 7))
+        for i in range(3):
+            pygame.draw.rect(s, (255, 120, 30), (x0 + 3 + i * 4, y - 3, 2, 2))
+    elif w == "cometcaller":
+        pygame.draw.line(s, (120, 90, 60), (x0, y + 3), (x0 + L, y - 3), 3)
+        pygame.draw.circle(s, (255, 230, 120), (int(x0 + L), int(y - 4)), 4)
+    elif w == "sunburst":
+        pygame.draw.circle(s, (240, 190, 60), (int(x0 + L * 0.6), int(y)), 6)
+        for i in range(8):
+            a = i * math.pi / 4
+            pygame.draw.line(s, (255, 230, 120), (x0 + L * 0.6 + math.cos(a) * 6, y + math.sin(a) * 6),
+                             (x0 + L * 0.6 + math.cos(a) * 9, y + math.sin(a) * 9), 1)
+    if firing:
+        pygame.draw.circle(s, (255, 240, 150), (int(x0 + L + 3), int(y)), 5)
+
+
+def new_weapon_endon(s, w, cx, cy, firing):
+    col_ = {"harpoon": (200, 205, 215), "blunderbuss": (190, 140, 60), "rivetgun": (90, 92, 100),
+            "depthcharger": (60, 90, 60), "tidalhorn": (90, 170, 220), "embersling": (120, 80, 40),
+            "featherfan": (245, 240, 220), "ashrepeater": (45, 40, 44), "cometcaller": (255, 230, 120),
+            "sunburst": (240, 190, 60)}[w]
+    r = {"blunderbuss": 7, "tidalhorn": 8, "sunburst": 7, "depthcharger": 6}.get(w, 5)
+    pygame.draw.circle(s, col_, (cx, cy), r)
+    pygame.draw.circle(s, darker(col_, 0.4), (cx, cy), max(1, r // 2))
+    if w == "featherfan":
+        for i in range(5):
+            pygame.draw.line(s, (245, 240, 220), (cx, cy), (cx - 8 + i * 4, cy - 8), 2)
+    if w == "embersling":
+        pygame.draw.circle(s, (255, 140, 30), (cx, cy), 2)
+    if firing:
+        pygame.draw.circle(s, (255, 240, 150), (cx, cy), r + 3)
+
+
+def weapon_view3(kind, frame):
+    """First-person views for the episode 2/3 weapons."""
+    s = S(140, 90)
+    if kind == "harpoon":
+        kick = (0, 8, 4, 0)[frame]
+        y = 40 + kick
+        pygame.draw.rect(s, (110, 80, 50), (62, y + 20, 16, 50))
+        pygame.draw.rect(s, (140, 145, 155), (64, y - 26, 12, 50))
+        if frame in (0, 3):
+            pygame.draw.polygon(s, (220, 220, 230), [(62, y - 26), (78, y - 26), (70, y - 42)])
+        wing(s, 78, y + 30)
+        if frame == 1:
+            pygame.draw.line(s, (220, 220, 230), (70, y - 30), (70, y - 70), 3)
+        return s
+    if kind == "blunderbuss":
+        kick = (0, 12, 6, 2)[frame]
+        y = 36 + kick
+        pygame.draw.rect(s, (110, 70, 40), (58, y + 24, 24, 46))
+        pygame.draw.polygon(s, (190, 140, 60), [(60, y + 26), (80, y + 26), (96, y - 14), (44, y - 14)])
+        pygame.draw.ellipse(s, (60, 40, 15), (46, y - 20, 48, 12))
+        wing(s, 32, y + 34, flip=True)
+        wing(s, 86, y + 38)
+        if frame == 1:
+            pygame.draw.circle(s, (255, 240, 150), (70, y - 24), 26)
+            pygame.draw.circle(s, (255, 255, 230), (70, y - 24), 13)
+        return s
+    if kind == "rivetgun":
+        kick = (0, 3, 1)[frame]
+        y = 38 + kick
+        pygame.draw.rect(s, (90, 92, 100), (52, y, 36, 50), border_radius=4)
+        pygame.draw.rect(s, (230, 190, 40), (52, y + 10, 36, 5))
+        pygame.draw.rect(s, (60, 60, 66), (64, y - 14, 12, 16))
+        wing(s, 86, y + 32)
+        if frame == 1:
+            pygame.draw.circle(s, (255, 240, 150), (70, y - 18), 12)
+        return s
+    if kind == "depthcharger":
+        kick = (0, 10, 5, 0)[frame]
+        y = 32 + kick
+        pygame.draw.rect(s, (60, 90, 60), (50, y, 40, 60), border_radius=10)
+        pygame.draw.ellipse(s, (30, 45, 30), (54, y - 6, 32, 16))
+        if frame in (0, 3):
+            pygame.draw.ellipse(s, (40, 40, 40), (60, y - 4, 20, 12))
+        wing(s, 88, y + 36)
+        if frame == 1:
+            pygame.draw.circle(s, (255, 200, 80), (70, y - 10), 16)
+        return s
+    if kind == "tidalhorn":
+        kick = (0, 0, 10, 4)[frame]
+        y = 32 + kick
+        pygame.draw.polygon(s, (90, 170, 220), [(56, y + 60), (84, y + 60), (104, y - 8), (36, y - 8)])
+        for i in range(5):
+            pygame.draw.line(s, (200, 240, 255), (44 + i * 13, y - 4), (58 + i * 6, y + 54), 2)
+        wing(s, 30, y + 40, flip=True)
+        wing(s, 94, y + 40)
+        if frame in (1, 2):
+            for rr in (40, 30, 20):
+                pygame.draw.arc(s, (160, 230, 255), (70 - rr, y - 30 - rr // 2, rr * 2, rr), 0.2, math.pi - 0.2, 3)
+        return s
+    if kind == "embersling":
+        pull = (0, 0, 12, 6)[frame]
+        y = 40
+        pygame.draw.line(s, (120, 80, 40), (70, y + 60), (70, y + 10), 6)
+        pygame.draw.line(s, (120, 80, 40), (70, y + 10), (50, y - 14), 5)
+        pygame.draw.line(s, (120, 80, 40), (70, y + 10), (90, y - 14), 5)
+        if frame != 1:
+            pygame.draw.line(s, (200, 180, 140), (50, y - 14), (70, y + 2 + pull), 2)
+            pygame.draw.line(s, (200, 180, 140), (90, y - 14), (70, y + 2 + pull), 2)
+            pygame.draw.circle(s, (255, 140, 30), (70, y + 2 + pull), 6)
+        else:
+            pygame.draw.line(s, (200, 180, 140), (50, y - 14), (90, y - 14), 2)
+            pygame.draw.circle(s, (255, 200, 80), (70, y - 40), 9)
+        wing(s, 78, y + 30)
+        return s
+    if kind == "featherfan":
+        spread = (0.25, 0.5, 0.35, 0.25)[frame]
+        y = 60
+        for i in range(5):
+            a = -math.pi / 2 + (i - 2) * spread
+            pygame.draw.line(s, (245, 240, 220), (70, y + 20), (70 + math.cos(a) * 50, y + 20 + math.sin(a) * 50), 6)
+            pygame.draw.line(s, (200, 170, 90), (70, y + 20), (70 + math.cos(a) * 50, y + 20 + math.sin(a) * 50), 1)
+        pygame.draw.circle(s, (200, 160, 60), (70, y + 20), 8)
+        wing(s, 76, y + 10)
+        return s
+    if kind == "ashrepeater":
+        kick = (0, 3, 1)[frame]
+        y = 36 + kick
+        pygame.draw.rect(s, (45, 40, 44), (54, y, 32, 54), border_radius=4)
+        for i in range(4):
+            pygame.draw.rect(s, (255, 120 + (frame * 40), 30), (58 + i * 7, y + 8, 4, 10))
+        pygame.draw.rect(s, (30, 26, 30), (64, y - 14, 12, 16))
+        wing(s, 84, y + 34)
+        if frame == 1:
+            pygame.draw.circle(s, (255, 160, 60), (70, y - 18), 12)
+        return s
+    if kind == "cometcaller":
+        lift = (0, 14, 8, 2)[frame]
+        y = 40 - lift
+        pygame.draw.line(s, (120, 90, 60), (76, y + 70), (70, y - 6), 6)
+        pygame.draw.circle(s, (255, 230, 120), (70, y - 12), 10 if frame in (1, 2) else 7)
+        for i in range(5):
+            a = i * 2 * math.pi / 5 - math.pi / 2
+            pygame.draw.line(s, (255, 250, 200), (70, y - 12), (70 + math.cos(a) * 14, y - 12 + math.sin(a) * 14), 2)
+        wing(s, 80, y + 40)
+        return s
+    if kind == "sunburst":
+        glow = (0, 6, 14, 4)[frame]
+        y = 46
+        pygame.draw.circle(s, (240, 190, 60), (70, y), 20 + glow // 2)
+        pygame.draw.circle(s, (255, 240, 160), (70, y), 10 + glow // 2)
+        for i in range(12):
+            a = i * math.pi / 6
+            pygame.draw.line(s, (255, 230, 120), (70 + math.cos(a) * 22, y + math.sin(a) * 22),
+                             (70 + math.cos(a) * (30 + glow), y + math.sin(a) * (30 + glow)), 3)
+        wing(s, 30, y + 26, flip=True)
+        wing(s, 94, y + 26)
+        return s
+    raise KeyError(kind)
+
+
+def ammo_item(ep, kind):
+    """Episode-specific ammo/weapon pickups (same pickup kinds, new looks)."""
+    big = kind in ("pebblebox", "eggcrate", "baguettes", "cornsack")
+    if ep == 1:
+        if kind in ("pebbles", "pebblebox"):          # bolts
+            s = S(22 if big else 14, 14)
+            for i in range(4 if big else 2):
+                pygame.draw.rect(s, (150, 155, 165), (2 + i * 5, 2, 3, 11))
+                pygame.draw.rect(s, (90, 92, 100), (1 + i * 5, 1, 5, 3))
+            return s
+        if kind in ("eggs", "eggcrate"):              # shot shells
+            s = S(26 if big else 16, 12)
+            for i in range(5 if big else 3):
+                pygame.draw.rect(s, (200, 40, 40), (1 + i * 5, 2, 4, 9))
+                pygame.draw.rect(s, (220, 190, 60), (1 + i * 5, 9, 4, 3))
+            return s
+        if kind in ("baguette", "baguettes"):         # depth charges
+            s = S(24 if big else 12, 14)
+            for i in range(2 if big else 1):
+                pygame.draw.rect(s, (60, 90, 60), (1 + i * 11, 1, 10, 13), border_radius=3)
+                pygame.draw.line(s, (30, 45, 30), (1 + i * 11, 7), (10 + i * 11, 7), 1)
+            return s
+        if kind in ("corn", "cornsack"):              # tide shells
+            s = S(22 if big else 14, 16)
+            for i in range(2 if big else 1):
+                pygame.draw.polygon(s, (90, 170, 220), [(2 + i * 9, 15), (7 + i * 9, 1), (12 + i * 9, 15)])
+            return s
+    else:
+        if kind in ("pebbles", "pebblebox"):          # embers
+            s = S(20 if big else 12, 12)
+            for i in range(4 if big else 2):
+                pygame.draw.circle(s, (255, 120 + i * 20, 30), (4 + i * 4, 7), 3)
+            return s
+        if kind in ("eggs", "eggcrate"):              # quills
+            s = S(24 if big else 14, 16)
+            for i in range(5 if big else 3):
+                pygame.draw.line(s, (245, 240, 220), (2 + i * 4, 15), (5 + i * 4, 1), 2)
+            return s
+        if kind in ("baguette", "baguettes"):         # stars
+            s = S(24 if big else 14, 14)
+            for i in range(2 if big else 1):
+                c = (7 + i * 10, 7)
+                pts = [(c[0] + math.cos(a) * (6 if j % 2 == 0 else 3), c[1] + math.sin(a) * (6 if j % 2 == 0 else 3))
+                       for j, a in enumerate([k * math.pi / 5 - math.pi / 2 for k in range(10)])]
+                pygame.draw.polygon(s, (255, 230, 120), pts)
+            return s
+        if kind in ("corn", "cornsack"):              # sun orbs
+            s = S(20 if big else 12, 14)
+            for i in range(2 if big else 1):
+                pygame.draw.circle(s, (240, 190, 60), (6 + i * 8, 8), 5)
+                pygame.draw.circle(s, (255, 250, 200), (6 + i * 8, 8), 2)
+            return s
+    raise KeyError(kind)
+
+
+def weapon_item(w):
+    """World pickup for an episode 2/3 weapon: its side view, a bit bigger."""
+    s = S(48, 20)
+    new_weapon_profile(s, w, 8, 10, NEW_WEAPON_LEN[w] + 10, False)
+    return s
+
+
+def fx4(kind, frame):
+    if kind in ("depthcharge", "grenade"):
+        s = S(14, 14)
+        pygame.draw.circle(s, (60, 90, 60) if kind == "depthcharge" else (70, 90, 60), (7, 7), 6)
+        pygame.draw.circle(s, (255, 60, 30) if frame else (255, 220, 60), (7, 2), 2)
+        return s
+    if kind == "ember":
+        s = S(12, 12)
+        pygame.draw.circle(s, (255, 120, 20), (6, 6), 5 - frame)
+        pygame.draw.circle(s, (255, 240, 150), (6, 6), 2)
+        return s
+    if kind == "feather":
+        s = S(16, 6)
+        pygame.draw.ellipse(s, (245, 240, 220), (0, 1, 16, 4))
+        pygame.draw.line(s, (200, 170, 90), (0, 3), (15, 3), 1)
+        return s
+    if kind == "sunbolt":
+        s = S(14, 14)
+        pygame.draw.circle(s, (255, 200, 60), (7, 7), 6 - frame)
+        pygame.draw.circle(s, (255, 255, 220), (7, 7), 3)
+        return s
+    if kind == "bone":
+        s = S(12, 8)
+        pygame.draw.line(s, (235, 225, 205), (1, 4), (11, 4), 2)
+        pygame.draw.circle(s, (235, 225, 205), (2, 4), 2)
+        pygame.draw.circle(s, (235, 225, 205), (10, 4), 2)
+        return s
+    if kind == "curse":
+        s = S(16, 16)
+        pygame.draw.circle(s, (40, 10, 60), (8, 8), 7)
+        pygame.draw.circle(s, (190, 90, 255), (8, 8), 7 - frame, 2)
+        return s
+    if kind == "meteor":
+        s = S(30, 30)
+        pygame.draw.circle(s, (255, 140, 40), (15, 15), 12 - frame * 2)
+        pygame.draw.circle(s, (255, 240, 160), (15, 15), 6)
+        return s
+    if kind == "wave":
+        s = S(40, 24)
+        pygame.draw.arc(s, (160, 230, 255, 230 - frame * 60), (2, 2, 36, 40), 0.3, math.pi - 0.3, 4)
+        return s
+    if kind == "flame":
+        s = S(12, 18)
+        pygame.draw.polygon(s, (255, 140, 30), [(2, 17), (6, 2 + frame * 3), (10, 17)])
+        pygame.draw.polygon(s, (255, 230, 120), [(4, 17), (6, 8 + frame * 3), (8, 17)])
+        return s
+    raise KeyError(kind)
+
+
 # ----------------------------------------------------------------- bundle
 class Assets:
     # wall texture ids
@@ -1667,10 +2134,20 @@ class Assets:
             "mallardking": dirframes(mallardking, ["walk0", "walk1", "atk0", "atk1", "pain", "d0", "d1", "d2"]),
             "owl": dirframes(owl, ["walk0", "walk1", "wind", "fire", "pain", "d0", "d1", "d2"]),
             "greatgander": dirframes(greatgander, ["walk0", "walk1", "atk0", "atk1", "pain", "d0", "d1", "d2"]),
+            "coot": dirframes(episode_enemy("coot"), ["walk0", "walk1", "aim", "fire", "pain", "d0", "d1", "d2"]),
+            "gull": dirframes(episode_enemy("gull"), ["walk0", "walk1", "bite0", "bite1", "pain", "d0", "d1", "d2"]),
+            "swanknight": dirframes(episode_enemy("swanknight"), ["walk0", "walk1", "bite0", "bite1", "pain", "d0", "d1", "d2"]),
+            "grebe": dirframes(episode_enemy("grebe"), ["walk0", "walk1", "wind", "fire", "pain", "d0", "d1", "d2"]),
+            "kingfisher": dirframes(episode_enemy("kingfisher"), ["walk0", "walk1", "aim", "fire", "pain", "d0", "d1", "d2"]),
+            "wren": dirframes(episode_enemy("wren"), ["walk0", "walk1", "bite0", "bite1", "pain", "d0", "d1", "d2"]),
+            "vulture": dirframes(episode_enemy("vulture"), ["walk0", "walk1", "wind", "fire", "bite0", "bite1", "pain", "d0", "d1", "d2"]),
+            "phoenix": dirframes(episode_enemy("phoenix"), ["walk0", "walk1", "wind", "fire", "pain", "d0", "d1", "d2"]),
+            "raven": dirframes(episode_enemy("raven"), ["walk0", "walk1", "wind", "fire", "pain", "d0", "d1", "d2"]),
+            "crow": dirframes(episode_enemy("crow"), ["walk0", "walk1", "bite0", "bite1", "pain", "d0", "d1", "d2"]),
         }
         for i in range(len(VEST_COLORS)):
             g = {}
-            for w in ("peck", "honker", "egggun", "flinger", "bazooka", "megahonk"):
+            for w in ("peck", "honker", "egggun", "flinger", "bazooka", "megahonk") + tuple(NEW_WEAPON_LEN):
                 fr = dirframes(lambda p, v, i=i, w=w: coop_goose(p, i, w, v), ["walk0", "walk1", "fire", "pain", "d2"])
                 g.update({("d2" if k == "d2" else "%s:%s" % (w, k)): a for k, a in fr.items()})
             self.sprites["goose%d" % i] = g
@@ -1687,6 +2164,14 @@ class Assets:
             self.sprites[k] = {"0": surf_arr(decor(k, 0)), "1": surf_arr(decor(k, 1))}
         for k, n in (("puff", 3), ("blood", 3), ("fireball", 2), ("boom", 3), ("flash", 1)):
             self.sprites[k] = {str(i): surf_arr(fx(k, i)) for i in range(n)}
+        for k, n in (("depthcharge", 2), ("grenade", 2), ("ember", 2), ("feather", 1), ("sunbolt", 2), ("bone", 1),
+                     ("curse", 2), ("meteor", 3), ("wave", 3), ("flame", 2)):
+            self.sprites[k] = {str(i): surf_arr(fx4(k, i)) for i in range(n)}
+        for ep in (1, 2):
+            for k in ("pebbles", "pebblebox", "eggs", "eggcrate", "baguette", "baguettes", "corn", "cornsack"):
+                self.sprites["%s@%d" % (k, ep)] = {"0": surf_arr(ammo_item(ep, k))}
+        for w in NEW_WEAPON_LEN:
+            self.sprites["item_" + w] = {"0": surf_arr(weapon_item(w))}
         for k, n in (("fishbone", 2), ("hoot", 2), ("voidring", 2)):
             self.sprites[k] = {str(i): surf_arr(fx3(k, i)) for i in range(n)}
         for k, n in (("eggbomb", 2), ("icebolt", 2), ("rocket", 2), ("megaring", 2), ("megaboom", 3), ("telefog", 3)):
@@ -1698,6 +2183,16 @@ class Assets:
             "flinger": [weapon_view2("flinger", i) for i in range(3)],
             "bazooka": [weapon_view2("bazooka", i) for i in range(4)],
             "megahonk": [weapon_view2("megahonk", i) for i in range(4)],
+            "harpoon": [weapon_view3("harpoon", i) for i in range(4)],
+            "blunderbuss": [weapon_view3("blunderbuss", i) for i in range(4)],
+            "rivetgun": [weapon_view3("rivetgun", i) for i in range(3)],
+            "depthcharger": [weapon_view3("depthcharger", i) for i in range(4)],
+            "tidalhorn": [weapon_view3("tidalhorn", i) for i in range(4)],
+            "embersling": [weapon_view3("embersling", i) for i in range(4)],
+            "featherfan": [weapon_view3("featherfan", i) for i in range(4)],
+            "ashrepeater": [weapon_view3("ashrepeater", i) for i in range(3)],
+            "cometcaller": [weapon_view3("cometcaller", i) for i in range(4)],
+            "sunburst": [weapon_view3("sunburst", i) for i in range(4)],
         }
         self.faces = {}
         for pain in range(5):

@@ -119,7 +119,8 @@ DECOR = {"tree": (1.45, 0.3, True), "lamp": (1.1, 0.18, True), "planter": (.45, 
          "crate": (.6, .42, True), "remains": (.1, 0, False), "barrel": (.48, .25, True),
          "eggpile": (.18, 0, False), "candle": (.5, .12, True), "snowman": (.7, .3, True)}
 COUNT_ITEMS = {"crumbs", "feather", "vest", "loaf", "downjacket", "rage", "goldegg", "boots", "parkmap"}
-FX_H = {"puff": .12, "blood": .16, "boom": .8, "flash": .2, "megaboom": 1.5, "telefog": .8}
+FX_H = {"puff": .12, "blood": .16, "boom": .8, "flash": .2, "megaboom": 1.5, "telefog": .8,
+        "wave": .5, "meteor": .9, "flame": .3}
 
 WEAPONS = {
     "peck": dict(ammo=None, cost=0, frames=[(1, .08), (2, .12), (3, .12), (0, .2)], fire_at=1),
@@ -134,6 +135,10 @@ FIRST_LEVEL = {"egggun": 0, "flinger": 1, "bazooka": 2, "megahonk": 4}   # level
 MAXAMMO = {"pebbles": 200, "eggs": 50, "baguettes": 50, "corn": 300}
 LEVEL_AMMO_BONUS = {"pebbles": 60, "eggs": 12, "baguettes": 6, "corn": 80}   # given on entering each new level
 AMMO_LABEL = (("pebbles", "PEBL"), ("eggs", "EGGS"), ("baguettes", "BAGT"), ("corn", "CORN"))
+AMMO_GIVE = dict(pebbles=lambda p: ("pebbles", 5 if p.dropped else 10), pebblebox=lambda p: ("pebbles", 50),
+                 eggs=lambda p: ("eggs", 4), eggcrate=lambda p: ("eggs", 20),
+                 baguette=lambda p: ("baguettes", 1), baguettes=lambda p: ("baguettes", 5),
+                 corn=lambda p: ("corn", 20), cornsack=lambda p: ("corn", 100))
 ONE_SHOT = ("use", "wnext", "wprev", "respawn") + tuple("w%d" % i for i in range(1, 7))
 
 # per-player state; Game reads/writes these on whichever player is "current" (self.cur)
@@ -145,6 +150,100 @@ PFIELDS = frozenset((
 REGEN_DELAY = 4.0      # seconds without taking damage before regen starts
 REGEN_EVERY = 1.5      # seconds per +1 health
 REGEN_CAP = 100        # regen never goes above this
+
+
+# ---- each episode has its own arsenal in the same six slots (slot names are the episode 1 weapons)
+WEAPONS.update({
+    "harpoon": dict(ammo="pebbles", cost=1, frames=[(1, .1), (2, .25), (3, .3), (0, .25)], fire_at=0),
+    "blunderbuss": dict(ammo="eggs", cost=1, frames=[(1, .1), (2, .2), (3, .35), (0, .4)], fire_at=0),
+    "rivetgun": dict(ammo="pebbles", cost=1, frames=[(1, .045), (2, .04)], fire_at=0),
+    "depthcharger": dict(ammo="baguettes", cost=1, frames=[(1, .1), (2, .2), (3, .25), (0, .25)], fire_at=0),
+    "tidalhorn": dict(ammo="corn", cost=40, frames=[(1, .35), (2, .2), (3, .3), (0, .3)], fire_at=1),
+    "embersling": dict(ammo="pebbles", cost=1, frames=[(2, .22), (1, .08), (3, .18), (0, .1)], fire_at=1),
+    "featherfan": dict(ammo="eggs", cost=1, frames=[(1, .08), (2, .2), (3, .3), (0, .2)], fire_at=0),
+    "ashrepeater": dict(ammo="pebbles", cost=1, frames=[(1, .06), (2, .05)], fire_at=0),
+    "cometcaller": dict(ammo="baguettes", cost=1, frames=[(1, .25), (2, .2), (3, .3), (0, .25)], fire_at=1),
+    "sunburst": dict(ammo="corn", cost=40, frames=[(1, .3), (2, .2), (3, .3), (0, .3)], fire_at=1),
+})
+EP_WEAPONS = [
+    {w: w for w in WEAPON_ORDER},
+    dict(peck="peck", honker="harpoon", egggun="blunderbuss", flinger="rivetgun", bazooka="depthcharger",
+         megahonk="tidalhorn"),
+    dict(peck="peck", honker="embersling", egggun="featherfan", flinger="ashrepeater", bazooka="cometcaller",
+         megahonk="sunburst"),
+]
+WEAPON_NAMES = dict(peck="the BEAK", honker="the HONKER", egggun="the EGG-GUN", flinger="the FEATHER FLINGER",
+                    bazooka="the BAGUETTE BAZOOKA", megahonk="the MEGAHONK",
+                    harpoon="the HARPOON GUN", blunderbuss="the BILGE BLUNDERBUSS", rivetgun="the RIVET GUN",
+                    depthcharger="the DEPTH CHARGER", tidalhorn="the TIDAL HORN",
+                    embersling="the EMBER SLING", featherfan="the FEATHER FAN", ashrepeater="the ASH REPEATER",
+                    cometcaller="the COMET CALLER", sunburst="the SUNBURST")
+EP_AMMO_LABEL = [
+    (("pebbles", "PEBL"), ("eggs", "EGGS"), ("baguettes", "BAGT"), ("corn", "CORN")),
+    (("pebbles", "BOLT"), ("eggs", "SHOT"), ("baguettes", "CHRG"), ("corn", "TIDE")),
+    (("pebbles", "EMBR"), ("eggs", "QUIL"), ("baguettes", "STAR"), ("corn", "SUN")),
+]
+EP_AMMO_TEXT = [
+    dict(pebbles="a pouch of pebbles", pebblebox="a box of pebbles", eggs="an egg carton", eggcrate="a crate of eggs",
+         baguette="a baguette", baguettes="a rack of baguettes", corn="a hell corn cob", cornsack="a sack of hell corn"),
+    dict(pebbles="a pouch of bolts", pebblebox="a box of bolts", eggs="a few shot shells", eggcrate="a crate of shot shells",
+         baguette="a depth charge", baguettes="a rack of depth charges", corn="a tide shell", cornsack="a sack of tide shells"),
+    dict(pebbles="a handful of embers", pebblebox="a brazier of embers", eggs="a bundle of quills",
+         eggcrate="a quiver of quills", baguette="a fallen star", baguettes="a cluster of stars",
+         corn="a sun orb", cornsack="a sack of sun orbs"),
+]
+# each episode swaps the stock monsters for its own residents
+EP_ENEMY_MAP = [
+    {},
+    dict(quackling="coot", mallard="coot", heron="kingfisher", fireswan="cormorant", pelican="grebe",
+         brute="swanknight", gosling="gull"),
+    dict(quackling="crow", cormorant="crow", mallard="raven", fireswan="phoenix", pelican="phoenix",
+         brute="vulture", gosling="wren", heron="owl"),
+]
+ENEMY.update({
+    "coot": dict(hp=30, speed=2.2, r=.28, h=.50, pain=.70, sight="coot", pains="pain_q", die="die_q", idle="coot",
+                 drop="pebbles", poses=("aim", "fire"),
+                 attacks=[dict(tl=[(.3, ("hit", 3, 1, 5, "quackshot")), (.42, ("hit", 3, 1, 5, "quackshot"))], end=.65)]),
+    "gull": dict(hp=15, speed=5.0, r=.20, h=.32, pain=.50, sight="gull", pains="gull", die="gosling_die", idle="gull",
+                 drop=None, poses=("bite0", "bite1"),
+                 attacks=[dict(melee=True, tl=[(.15, ("bite", 2, 1, 5, "bite"))], end=.35)]),
+    "swanknight": dict(hp=220, speed=2.4, r=.42, h=.95, pain=.30, sight="knight", pains="pain_b", die="die_b",
+                       idle="growl", drop=None, poses=("bite0", "bite1"),
+                       attacks=[dict(melee=True, tl=[(.3, ("bite", 5, 1, 8, "bite"))], end=.6),
+                                dict(maxdist=10, tl=[(.35, ("dash", 9.0, 4, 2, 6, "knight"))], end=.95)]),
+    "grebe": dict(hp=70, speed=2.0, r=.30, h=.55, pain=.60, sight="grebe", pains="pain_s", die="die_s", idle="quack",
+                  drop=None, poses=("wind", "fire"),
+                  attacks=[dict(tl=[(.5, ("miss", "grenade", 1, 0, "pelican_atk"))], end=.9)]),
+    "kingfisher": dict(hp=50, speed=2.6, r=.26, h=.55, pain=.60, sight="kf", pains="pain_s", die="die_q", idle="kf",
+                       drop=None, poses=("aim", "fire"), kite=6,
+                       attacks=[dict(tl=[(.9, ("hit", 6, 2, 5, "snipe", .9))], end=1.2)]),
+    "wren": dict(hp=10, speed=5.2, r=.18, h=.26, pain=.20, sight="wren", pains="peep", die="gosling_die", idle="peep",
+                 drop=None, poses=("bite0", "bite1"), reach=.55,
+                 attacks=[dict(melee=True, tl=[(.25, ("selfdestruct", 1.9, 60))], end=.4)]),
+    "vulture": dict(hp=240, speed=2.3, r=.45, h=.95, pain=.45, sight="vulture", pains="pain_b", die="die_b",
+                    idle="growl", drop=None, poses=("wind", "fire"),
+                    attacks=[dict(melee=True, tl=[(.3, ("bite", 6, 1, 8, "bite"))], end=.65),
+                             dict(tl=[(.45, ("miss", "bone", 5, .12, "corm_spit"))], end=.85)]),
+    "phoenix": dict(hp=80, speed=2.4, r=.30, h=.70, pain=.50, sight="phoenix", pains="pain_s", die="die_s",
+                    idle="hiss", drop=None, poses=("wind", "fire"), rebirth=True,
+                    attacks=[dict(tl=[(.45, ("miss", "fireball", 3, .2, "fireball"))], end=.8)]),
+    "raven": dict(hp=70, speed=2.2, r=.30, h=.70, pain=.50, sight="raven", pains="pain_s", die="die_s", idle="raven",
+                  drop=None, poses=("wind", "fire"),
+                  attacks=[dict(weight=3, tl=[(.5, ("miss", "curse", 1, 0, "hoot"))], end=.85),
+                           dict(weight=1, tl=[(.5, ("spawn", "crow", 2, "raven"))], end=1.0)]),
+    "crow": dict(hp=12, speed=5.4, r=.20, h=.30, pain=.50, sight="raven", pains="peep", die="gosling_die",
+                 idle="raven", drop=None, poses=("bite0", "bite1"),
+                 attacks=[dict(melee=True, tl=[(.15, ("bite", 2, 1, 4, "bite"))], end=.35)]),
+})
+MISSILES.update({
+    "grenade": dict(speed=6.0, dmg=(2, 1, 4), splash=(1.8, 50), h=.22, sprite="grenade", boom="boom", bounce=1.4),
+    "depthcharge": dict(speed=9.0, dmg=(10, 1, 4), splash=(2.6, 150), h=.22, sprite="depthcharge", boom="boom", bounce=1.2),
+    "ember": dict(speed=14.0, dmg=(10, 1, 4), splash=(1.1, 30), h=.22, sprite="ember", boom="boom", noself=True),
+    "feather": dict(speed=16.0, dmg=(6, 1, 3), splash=None, h=.2, sprite="feather", boom="puff", pierce=3),
+    "sunbolt": dict(speed=11.0, dmg=(12, 1, 3), splash=(1.0, 40), h=.3, sprite="sunbolt", boom="boom", noself=True),
+    "bone": dict(speed=10.0, dmg=(2, 1, 5), splash=None, h=.25, sprite="bone", boom="puff"),
+    "curse": dict(speed=4.5, dmg=(4, 1, 6), splash=None, h=.35, sprite="curse", boom="puff", homing=2.6),
+})
 
 
 VICTORY_STORY = [
@@ -380,6 +479,11 @@ class Enemy(Mob):
         self.sees = False
         self.target = None
         self.face = random.randrange(8) * math.pi / 4     # idle monsters look somewhere random
+        self.burn = 0.0
+        self.burn_acc = 0.0
+        self.reborn = False
+        self.reviving = 0.0
+        self.dash = 0.0
         self.atk = None
         self.done = 0
         self.last_ev = -9.0
@@ -722,6 +826,13 @@ class Game:
         return s
 
     def default_loadout(self, idx):
+        ep = episode_of(idx)
+        if ep:
+            rel = idx - EPISODES[ep][1]     # slots 1-3 to start; 4, 5, 6 are found in levels 2, 3, 4
+            owned = dict(peck=True, honker=True, egggun=True, flinger=rel > 1, bazooka=rel > 2, megahonk=rel > 3)
+            ammo = {"pebbles": 80, "eggs": 16, "baguettes": 6 if owned["bazooka"] else 0,
+                    "corn": 80 if owned["megahonk"] else 0}
+            return dict(health=100, armor=50, armor_class=1, ammo=ammo, owned=owned, weapon="egggun")
         owned = {w: (w in ("peck", "honker") or FIRST_LEVEL[w] < idx) for w in WEAPON_ORDER}
         ammo = {"pebbles": 50 if idx == 0 else 100, "eggs": 20 if owned["egggun"] else 0,
                 "baguettes": 8 if owned["bazooka"] else 0, "corn": 80 if owned["megahonk"] else 0}
@@ -769,6 +880,7 @@ class Game:
                     if skipped % 2:
                         continue
                 if enemies:
+                    kind = EP_ENEMY_MAP[L.episode].get(kind, kind)
                     self.enemies.append(Enemy(kind, x, y, hp_mul if ENEMY[kind].get("boss") else 1.0))
             elif kind in DECOR:
                 self.decor.append(Decor(kind, x, y))
@@ -782,6 +894,7 @@ class Game:
         self.R = Renderer(self.A, L)
         self.keys = set()
         self.missiles, self.effects = [], []
+        self.strikes = []
         self.spawn_things(L)
         self.boss = next((e for e in self.enemies if e.boss), None)
         self.boss_title = self.boss.st["title"] if self.boss else ""
@@ -1058,12 +1171,19 @@ class Game:
             return
         self.sound("oof")
 
+    def episode(self):
+        return self.level.episode if self.level is not None else 0
+
+    def cw(self, slot=None):
+        """The concrete weapon in a slot for the current episode (slot names are the episode 1 weapons)."""
+        return EP_WEAPONS[self.episode()][slot or self.weapon]
+
     def has_ammo(self, w):
-        spec = WEAPONS[w]
+        spec = WEAPONS[self.cw(w)]
         return spec["ammo"] is None or self.ammo[spec["ammo"]] >= spec["cost"]
 
     def fire(self):
-        w = WEAPONS[self.weapon]
+        w = WEAPONS[self.cw()]
         if not self.has_ammo(self.weapon):
             self.sound("noammo")
             for cand in ("megahonk", "flinger", "egggun", "honker", "bazooka", "peck"):
@@ -1072,13 +1192,14 @@ class Game:
                     break
             return
         self.wstate, self.wfi, self.wtimer = "fire", 0, w["frames"][0][1]
-        if self.weapon == "megahonk":
-            self.sound("megahonk", self.px, self.py)
+        charge = {"megahonk": "megahonk", "tidalhorn": "tide", "sunburst": "sunburst", "cometcaller": "comet"}
+        if self.cw() in charge:
+            self.sound(charge[self.cw()], self.px, self.py)
         if w["fire_at"] == 0:
             self.shoot()
 
     def shoot(self):
-        w = self.weapon
+        w = self.cw()
         spec = WEAPONS[w]
         if w == "peck":
             self.sound("peck", self.px, self.py)
@@ -1086,7 +1207,7 @@ class Game:
             if self.hitscan(self.ang + random.uniform(-0.05, 0.05), 1.15, dmg, puff=False):
                 self.sound("punch", self.px, self.py)
             return
-        if not self.has_ammo(w):
+        if not self.has_ammo(self.weapon):
             return
         self.ammo[spec["ammo"]] -= spec["cost"]
         self.flash = 0.1
@@ -1111,34 +1232,113 @@ class Game:
         elif w == "megahonk":
             self.spawn_missile("megaring", self.px, self.py, self.ang, self.cur)
             self.shake = 0.25
+        # ---- episode 2: DOWNSTREAM
+        elif w == "harpoon":
+            self.sound("harpoon", self.px, self.py)
+            self.hitscan(self.ang, 48, 15 * random.randint(1, 3), pierce=2)
+        elif w == "blunderbuss":
+            self.sound("blunderbuss", self.px, self.py)
+            for _ in range(12):
+                self.hitscan(self.ang + random.uniform(-0.18, 0.18), 30, 5 * random.randint(1, 3))
+            self.vx -= math.cos(self.ang) * 5.5          # it kicks
+            self.vy -= math.sin(self.ang) * 5.5
+            self.shake = max(self.shake, 0.12)
+        elif w == "rivetgun":
+            self.sound("rivet", self.px, self.py)
+            spread = 0.0 if self.refire <= 0 else 0.08
+            self.hitscan(self.ang + random.uniform(-spread, spread), 40, 4 * random.randint(1, 3))
+            self.refire = 0.2
+        elif w == "depthcharger":
+            self.sound("rocket", self.px, self.py)
+            self.spawn_missile("depthcharge", self.px, self.py, self.ang, self.cur)
+        elif w == "tidalhorn":
+            self.tidal_wave()
+        # ---- episode 3: THE ROOST OF ASH
+        elif w == "embersling":
+            self.sound("ember", self.px, self.py)
+            self.spawn_missile("ember", self.px, self.py, self.ang, self.cur)
+        elif w == "featherfan":
+            self.sound("feather", self.px, self.py)
+            for i in range(5):
+                self.spawn_missile("feather", self.px, self.py, self.ang + (i - 2) * 0.12, self.cur)
+        elif w == "ashrepeater":
+            self.sound("ashrep", self.px, self.py)
+            spread = 0.0 if self.refire <= 0 else 0.07
+            hit = self.hitscan(self.ang + random.uniform(-spread, spread), 40, 4 * random.randint(1, 3))
+            if isinstance(hit, Enemy):
+                hit.burn = 2.5                       # sets them on fire
+            self.refire = 0.25
+        elif w == "cometcaller":
+            d = self.ray_wall(self.px, self.py, math.cos(self.ang), math.sin(self.ang), 22)
+            for e in self.enemies:                   # lock on to the first monster in the line of fire
+                if e.alive:
+                    rx, ry = e.x - self.px, e.y - self.py
+                    t = rx * math.cos(self.ang) + ry * math.sin(self.ang)
+                    if 0 < t < d and abs(rx * math.sin(self.ang) - ry * math.cos(self.ang)) < e.r + 0.3:
+                        d = t
+            tx, ty = self.px + math.cos(self.ang) * (d - 0.3), self.py + math.sin(self.ang) * (d - 0.3)
+            self.strikes.append([0.6, tx, ty])
+            self.effects.append(Effect("meteor", tx, ty, 1.4, 3, 0.6))
+        elif w == "sunburst":
+            for i in range(16):
+                self.spawn_missile("sunbolt", self.px, self.py, self.ang + i * math.tau / 16, self.cur, 0.4)
+            self.shake = 0.25
 
     def spawn_missile(self, kind, x, y, a, owner, offset=0.35):
         m = Missile(kind, x + math.cos(a) * offset, y + math.sin(a) * offset, math.cos(a), math.sin(a), owner)
         self.missiles.append(m)
         return m
 
-    def hitscan(self, a, maxd, dmg, puff=True):
+    def hitscan(self, a, maxd, dmg, puff=True, pierce=1):
+        """Instant shot along angle a. Returns the first thing hit (or None). pierce = how many it passes through."""
         dx, dy = math.cos(a), math.sin(a)
         wd = self.ray_wall(self.px, self.py, dx, dy, maxd)
-        best, bt = None, wd
+        hits = []
         for o in list(self.enemies) + [d for d in self.decor if d.hp is not None and d.alive]:
             if not o.alive:
                 continue
             rx, ry = o.x - self.px, o.y - self.py
             t = rx * dx + ry * dy
-            if 0 < t < bt and abs(rx * dy - ry * dx) < o.r + 0.04:
-                best, bt = o, t
-        if best is not None:
-            if isinstance(best, Enemy):
-                self.effects.append(Effect("blood", best.x - dx * best.r, best.y - dy * best.r, 0.35, 3, 0.3))
-                self.hurt_enemy(best, dmg)
+            if 0 < t < wd and abs(rx * dy - ry * dx) < o.r + 0.04:
+                hits.append((t, o))
+        hits.sort(key=lambda h: h[0])
+        hits = hits[:pierce]
+        for t, o in hits:
+            if isinstance(o, Enemy):
+                self.effects.append(Effect("blood", o.x - dx * o.r, o.y - dy * o.r, 0.35, 3, 0.3))
+                self.hurt_enemy(o, dmg)
             else:
-                self.effects.append(Effect("puff", best.x - dx * best.r, best.y - dy * best.r, 0.3, 3, 0.25))
-                self.hurt_barrel(best, dmg)
-            return True
+                self.effects.append(Effect("puff", o.x - dx * o.r, o.y - dy * o.r, 0.3, 3, 0.25))
+                self.hurt_barrel(o, dmg)
+        if hits:
+            return hits[0][1]
         if puff and wd < maxd:
             self.effects.append(Effect("puff", self.px + dx * (wd - 0.04), self.py + dy * (wd - 0.04), EYE - 0.05, 3, 0.25))
-        return False
+        return None
+
+    def tidal_wave(self):
+        """Tidal Horn: a cone of water that slams everything in front of you and shoves it back."""
+        self.shake = 0.3
+        for i in range(1, 8):
+            d = i * 1.1
+            if self.ray_wall(self.px, self.py, math.cos(self.ang), math.sin(self.ang), d) < d:
+                break
+            self.effects.append(Effect("wave", self.px + math.cos(self.ang) * d, self.py + math.sin(self.ang) * d,
+                                       0.25, 3, 0.35 + i * 0.04))
+        targets = [o for o in self.enemies if o.alive] + [d for d in self.decor if d.hp is not None and d.alive]
+        for o in targets:
+            rx, ry = o.x - self.px, o.y - self.py
+            dist = math.hypot(rx, ry)
+            off = (math.atan2(ry, rx) - self.ang + math.pi) % math.tau - math.pi
+            if dist > 9 or abs(off) > 0.6 or not self.los(self.px, self.py, o.x, o.y):
+                continue
+            if isinstance(o, Enemy):
+                self.hurt_enemy(o, 20 * random.randint(5, 10))
+                if o.alive and not o.boss:
+                    for _ in range(6):
+                        self.try_move(o, o.x + rx / max(dist, .1) * 0.25, o.y + ry / max(dist, .1) * 0.25, o.r)
+            else:
+                self.hurt_barrel(o, 50)
 
     def switch(self, name):
         if not self.owned.get(name) or name == self.weapon:
@@ -1169,6 +1369,12 @@ class Game:
         if not e.alive:
             return
         e.hp -= dmg
+        if e.hp <= 0 and e.st.get("rebirth") and not e.reborn:
+            e.alive = False                  # the phoenix falls... and will rise again once
+            e.state, e.t = "dying", 0.0
+            e.reviving = 2.5
+            self.sound(e.st["die"], e.x, e.y)
+            return
         if e.hp <= 0:
             e.alive = False
             e.state, e.t = "dying", 0.0
@@ -1244,7 +1450,25 @@ class Game:
         st = e.st
         if e.state == "dying":
             e.t += dt
+            if e.reviving > 0:
+                e.reviving -= dt
+                if e.reviving <= 0:
+                    e.reborn, e.alive, e.hp, e.state = True, True, e.max_hp, "chase"
+                    self.effects.append(Effect("telefog", e.x, e.y, 0.0, 3, 0.6))
+                    self.effects.append(Effect("boom", e.x, e.y, 0.1, 3, 0.4))
+                    self.sound(st["sight"], e.x, e.y)
             return
+        if e.burn > 0 and e.alive:
+            e.burn -= dt
+            e.burn_acc += dt * 14
+            if random.random() < dt * 6:
+                self.effects.append(Effect("flame", e.x + random.uniform(-.2, .2), e.y + random.uniform(-.2, .2), 0.2, 2, 0.3))
+            if e.burn_acc >= 1:
+                n = int(e.burn_acc)
+                e.burn_acc -= n
+                self.hurt_enemy(e, n)
+                if not e.alive:
+                    return
         if not e.alive:
             return
         tgt = self.pick_target(e)
@@ -1277,9 +1501,9 @@ class Game:
         e.cd -= dt
         if e.cd <= 0:
             e.cd = 0.3
-            reach = e.r + PR + 0.38
+            reach = e.r + PR + st.get("reach", 0.38)
             melee = [a for a in st["attacks"] if a.get("melee")]
-            ranged = [a for a in st["attacks"] if not a.get("melee")]
+            ranged = [a for a in st["attacks"] if not a.get("melee") and dist <= a.get("maxdist", 99)]
             chance = 0.22 + 0.5 * max(0, 1 - dist / 14) + (0.35 if e.boss else 0)
             pick = None
             if melee and dist < reach:
@@ -1324,6 +1548,8 @@ class Game:
         if md < 0.05 or (e.sees and dist < e.r + PR + 0.15):
             return
         a = math.atan2(my, mx) + (e.zig if e.sees else 0)
+        if e.sees and dist < st.get("kite", 0):
+            a = math.atan2(-dy, -dx) + e.zig * 0.5     # snipers back off to keep their distance
         if not e.sees:
             e.face = a
         sp = st["speed"] * (1.25 if self.skill == 2 else 1.0) * dt
@@ -1339,7 +1565,17 @@ class Game:
             self.attack_event(e, tl[e.done][1], dist)
             e.done += 1
             e.last_ev = e.t
+        if e.dash > 0:                                  # Swan Knight charge
+            e.dash -= dt
+            step = e.dash_spec[0] * dt
+            self.try_move(e, e.x + math.cos(e.dash_dir) * step, e.y + math.sin(e.dash_dir) * step, e.r)
+            if not e.dash_hit and math.hypot(self.px - e.x, self.py - e.y) < e.r + PR + 0.25:
+                e.dash_hit = True
+                _, mult, lo, hi = e.dash_spec
+                self.damage_player(mult * random.randint(lo, hi), e)
+                self.shake = max(self.shake, 0.2)
         if e.t >= atk["end"]:
+            e.dash = 0.0
             e.state = "chase"
             e.cd = (0.6 + random.random() * 0.6) if e.boss else (0.6 + random.random() * 1.4)
 
@@ -1347,11 +1583,11 @@ class Game:
         kind = ev[0]
         a = math.atan2(self.py - e.y, self.px - e.x)
         if kind == "hit":
-            _, mult, lo, hi, snd = ev
+            mult, lo, hi, snd = ev[1:5]
             self.sound(snd, e.x, e.y)
             if self.los(e.x, e.y, self.px, self.py):
                 speed = math.hypot(self.vx, self.vy)
-                p = max(0.2, 0.85 - dist * 0.035 - speed * 0.04)
+                p = ev[5] if len(ev) > 5 else max(0.2, 0.85 - dist * 0.035 - speed * 0.04)
                 if random.random() < p:
                     self.damage_player(mult * random.randint(lo, hi), e)
         elif kind == "miss":
@@ -1376,12 +1612,21 @@ class Game:
                 sx, sy = e.x + math.cos(ang) * 1.4, e.y + math.sin(ang) * 1.4
                 if self.blocked_cell(sx, sy):
                     continue
-                g = Enemy(sk, sx, sy)
+                g = Enemy(EP_ENEMY_MAP[self.episode()].get(sk, sk), sx, sy)
                 g.state = "chase"
                 self.enemies.append(g)
                 self.kills_total += 1
                 alive += 1
                 self.effects.append(Effect("telefog", sx, sy, 0.0, 3, 0.5))
+        elif kind == "dash":
+            _, speed, mult, lo, hi, snd = ev
+            self.sound(snd, e.x, e.y)
+            e.dash, e.dash_dir, e.dash_hit, e.dash_spec = 0.45, a, False, (speed, mult, lo, hi)
+        elif kind == "selfdestruct":
+            _, rad, power = ev
+            self.explode(e.x, e.y, rad, power, owner=e)
+            if e.alive:
+                self.hurt_enemy(e, 9999)
         elif kind == "blink":
             _, rng, snd = ev
             for _ in range(12):
@@ -1464,6 +1709,11 @@ class Game:
             self.think_enemy(e, dt)
         self.cur = self.me
         self.update_missiles(dt)
+        for st_ in list(self.strikes):
+            st_[0] -= dt
+            if st_[0] <= 0:
+                self.strikes.remove(st_)
+                self.explode(st_[1], st_[2], 3.0, 220, fxkind="megaboom")
         for b in self.decor:
             if b.boom_t >= 0 and b.alive:
                 b.boom_t -= dt
@@ -1610,7 +1860,7 @@ class Game:
         self.bob_amt = min(1.0, spd)
 
     def weapon_tick(self, dt, inp):
-        w = WEAPONS[self.weapon]
+        w = WEAPONS[self.cw()]
         if self.wstate == "lower":
             self.wtimer -= dt
             self.wraise = 1 - max(0, self.wtimer) / 0.15
@@ -1632,7 +1882,7 @@ class Game:
                     self.wtimer = w["frames"][self.wfi][1]
                     if self.wfi == w["fire_at"] and w["fire_at"] > 0:
                         self.shoot()
-                    if self.weapon == "egggun" and self.wfi == 3:
+                    if self.cw() in ("egggun", "blunderbuss") and self.wfi == 3:
                         self.sound("pump")
         if self.wstate == "up" and self.queued:
             self.switch(self.queued)
@@ -1671,30 +1921,12 @@ class Game:
             self.armor, self.armor_class = 200, 2; took, text = True, "the armored down jacket"
         elif k == "feather":
             self.armor = min(200, self.armor + 1); took, text = True, "a loose feather"
-        elif k == "pebbles" and self.give_ammo("pebbles", 5 if p.dropped else 10):
-            took, text = True, "a pouch of pebbles"
-        elif k == "pebblebox" and self.give_ammo("pebbles", 50):
-            took, text = True, "a box of pebbles"
-        elif k == "eggs" and self.give_ammo("eggs", 4):
-            took, text = True, "an egg carton"
-        elif k == "eggcrate" and self.give_ammo("eggs", 20):
-            took, text = True, "a crate of eggs"
-        elif k == "baguette" and self.give_ammo("baguettes", 1):
-            took, text = True, "a baguette"
-        elif k == "baguettes" and self.give_ammo("baguettes", 5):
-            took, text = True, "a rack of baguettes"
-        elif k == "corn" and self.give_ammo("corn", 20):
-            took, text = True, "a hell corn cob"
-        elif k == "cornsack" and self.give_ammo("corn", 100):
-            took, text = True, "a sack of hell corn"
-        elif k == "egggun":
-            took, text, snd = self.give_weapon("egggun", "eggs", 8, "the EGG-GUN", picker)
-        elif k == "flinger":
-            took, text, snd = self.give_weapon("flinger", "pebbles", 20, "the FEATHER FLINGER", picker)
-        elif k == "bazooka":
-            took, text, snd = self.give_weapon("bazooka", "baguettes", 2, "the BAGUETTE BAZOOKA", picker)
-        elif k == "megahonk":
-            took, text, snd = self.give_weapon("megahonk", "corn", 40, "the MEGAHONK", picker)
+        elif k in EP_AMMO_TEXT[0] and self.give_ammo(*AMMO_GIVE[k](p)):
+            took, text = True, EP_AMMO_TEXT[self.episode()][k]
+        elif k in ("egggun", "flinger", "bazooka", "megahonk"):
+            ammo, n = {"egggun": ("eggs", 8), "flinger": ("pebbles", 20), "bazooka": ("baguettes", 2),
+                       "megahonk": ("corn", 40)}[k]
+            took, text, snd = self.give_weapon(k, ammo, n, WEAPON_NAMES[self.cw(k)], picker)
         elif k in ("ykey", "bkey", "rkey"):
             c = {"ykey": "yellow", "bkey": "blue", "rkey": "red"}[k]
             self.keys.add(c)
@@ -1781,8 +2013,39 @@ class Game:
                         if isinstance(o, Enemy) and isinstance(m.owner, Enemy) and o.kind == m.owner.kind:
                             continue   # same species can't hurt each other
                         if (nx - o.x) ** 2 + (ny - o.y) ** 2 < (o.r + 0.12) ** 2:
+                            if id(o) in getattr(m, "hit", ()):
+                                continue
                             target = o
                             break
+            if sp.get("bounce"):
+                m.fuse = getattr(m, "fuse", sp["bounce"]) - dt
+                if hitwall:                     # bounce off walls, lose some speed
+                    if self.blocked_cell(nx, m.y):
+                        m.dx = -m.dx
+                    if self.blocked_cell(m.x, ny):
+                        m.dy = -m.dy
+                    m.slow = getattr(m, "slow", 1.0) * 0.7
+                    hitwall = False
+                    nx, ny = m.x, m.y
+                if target is None and m.fuse > 0:
+                    m.slow = getattr(m, "slow", 1.0) * (1 - dt * 0.9)
+                    m.x += (nx - m.x) * m.slow
+                    m.y += (ny - m.y) * m.slow
+                    continue
+                if target is None:
+                    hitwall = True              # fuse ran out: boom right here
+            if sp.get("pierce") and isinstance(target, Enemy) and not hitwall:
+                m.hit = getattr(m, "hit", set())
+                if id(target) not in m.hit:
+                    m.hit.add(id(target))
+                    mult, lo, hi = sp["dmg"]
+                    self.effects.append(Effect("blood", target.x, target.y, 0.35, 3, 0.3))
+                    self.hurt_enemy(target, mult * random.randint(lo, hi))
+                if len(m.hit) < sp["pierce"]:
+                    m.x, m.y = nx, ny
+                    continue
+                m.removed = True
+                continue
             if not (hitwall or target):
                 m.x, m.y = nx, ny
                 continue
@@ -1879,7 +2142,9 @@ class Game:
         ep = episode_of(self.level_idx)
         if ep + 1 < len(EPISODES):
             self.total = dict(kills=0, kills_total=0, items=0, items_total=0, secrets=0, secrets_total=0, time=0.0)
-            self.refill_and_load(EPISODES[ep + 1][1])
+            for p in self.players:          # a new episode means a new arsenal
+                p.carry = self.default_loadout(EPISODES[ep + 1][1])
+            self.load_level(EPISODES[ep + 1][1])
             return
         if self.role == "host":
             self.leave_coop()
@@ -2235,10 +2500,16 @@ class Game:
             else:
                 f = "walk%d" % (int(p.bob) % 2)
             if f != "d2":
-                f = "%s:%s|%s" % (p.weapon, f, view_key(p.ang, p.px, p.py, viewer))
+                f = "%s:%s|%s" % (EP_WEAPONS[self.episode()][p.weapon], f, view_key(p.ang, p.px, p.py, viewer))
             out.append(("goose%d" % (p.pid % 3), f, p.px, p.py, 0.0, 0.62, p.wstate == "fire" and p.wfi == 0))
+        ep = self.episode()
         for p in self.pickups:
-            out.append((p.kind, "0", p.x, p.y, 0.0, ITEM_H[p.kind], p.kind in ("ykey", "bkey", "rkey", "goldegg", "megahonk")))
+            key = p.kind
+            if ep and p.kind in EP_AMMO_TEXT[0]:
+                key = "%s@%d" % (p.kind, ep)
+            elif ep and p.kind in ("egggun", "flinger", "bazooka", "megahonk"):
+                key = "item_" + EP_WEAPONS[ep][p.kind]
+            out.append((key, "0", p.x, p.y, 0.0, ITEM_H[p.kind], p.kind in ("ykey", "bkey", "rkey", "goldegg", "megahonk")))
         for d in self.decor:
             if d.removed:
                 continue
@@ -2342,7 +2613,7 @@ class Game:
         self.draw_bar()
 
     def draw_weapon(self):
-        w = self.weapon
+        w = self.cw()
         fr = WEAPONS[w]["frames"][min(self.wfi, len(WEAPONS[w]["frames"]) - 1)][0] if self.wstate == "fire" else 0
         surf = self.A.weapons[w][fr]
         bx = math.cos(self.bob) * 9 * self.bob_amt
@@ -2405,7 +2676,7 @@ class Game:
         s = self.screen
         s.blit(self.bar_bg, (0, VH))
         y = VH + 2
-        w = WEAPONS[self.weapon]
+        w = WEAPONS[self.cw()]
         for x, label in ((24, "AMMO"), (76, "HEALTH"), (125, "WINGS"), (202, "ARMOR")):
             self.text_c_at(s, label, x, VH + 22, (235, 210, 150), self.font_small)
         self.big("" if w["ammo"] is None else str(self.ammo[w["ammo"]]), 24, y)
@@ -2435,7 +2706,7 @@ class Game:
                 pygame.draw.rect(s, (255, 255, 255), r, 1)
             else:
                 pygame.draw.rect(s, (40, 30, 20), r, 1)
-        for i, (k, lab) in enumerate(AMMO_LABEL):
+        for i, (k, lab) in enumerate(EP_AMMO_LABEL[self.episode()]):
             c = (255, 240, 200) if w["ammo"] == k else (225, 200, 140)
             self.text(s, "%s %3d/%d" % (lab, self.ammo[k], MAXAMMO[k]), 254, VH + 2 + i * 7, c, self.font_tiny)
 
@@ -3022,26 +3293,82 @@ def selftest(out):
     assert g.py < 36.5, "player did not walk through the door"
     print("doors ok")
 
-    # ---- every weapon fires and uses ammo
-    g.new_game(5, 1)
-    g.enemies, g.boss = [], None
-    for w in WEAPON_ORDER:
-        g.owned[w] = True
-    for k in MAXAMMO:
-        g.ammo[k] = MAXAMMO[k]
-    g.px, g.py, g.ang = 22.5, 30.5, -math.pi / 2
-    for w in WEAPON_ORDER:
-        g.weapon, g.wstate = w, "up"
-        before = dict(g.ammo)
-        step(1, fire=True)
-        step(40)
-        spec = WEAPONS[w]
-        if spec["ammo"]:
-            assert g.ammo[spec["ammo"]] == before[spec["ammo"]] - spec["cost"], ("ammo not used", w)
-    print("weapons ok")
+    # ---- every weapon of every episode fires and uses ammo
+    for ep, (_, first, last) in enumerate(EPISODES):
+        g.new_game(last, 1)
+        g.enemies, g.boss = [], None
+        for w in WEAPON_ORDER:
+            g.owned[w] = True
+        g.px, g.py, g.ang = 22.5, 30.5, -math.pi / 2
+        for w in WEAPON_ORDER:
+            for k in MAXAMMO:
+                g.ammo[k] = MAXAMMO[k]
+            g.health, g.invuln = 200, 99
+            g.weapon, g.wstate, g.wfi = w, "up", 0
+            before = dict(g.ammo)
+            step(1, fire=True)
+            step(60)
+            spec = WEAPONS[EP_WEAPONS[ep][w]]
+            if spec["ammo"]:
+                assert g.ammo[spec["ammo"]] == before[spec["ammo"]] - spec["cost"], ("ammo not used", EP_WEAPONS[ep][w])
+            g.draw_play()
+            if w in ("flinger", "bazooka", "megahonk"):
+                shot(g, "weapon_ep%d_%s" % (ep + 1, EP_WEAPONS[ep][w]))
+        print("episode %d weapons ok: %s" % (ep + 1, ", ".join(EP_WEAPONS[ep][w] for w in WEAPON_ORDER)))
+
+    # ---- episode arsenals and rosters
+    for ep in (1, 2):
+        first = EPISODES[ep][1]
+        g.new_game(first, 1)
+        assert [w for w in WEAPON_ORDER if g.owned[w]] == ["peck", "honker", "egggun"], ("episode should start fresh", g.owned)
+        stock = set(EP_ENEMY_MAP[ep])
+        for i in range(EPISODES[ep][1], EPISODES[ep][2] + 1):
+            g.new_game(i, 2)
+            kinds = {e.kind for e in g.enemies}
+            assert not (kinds & stock), ("episode %d still has" % (ep + 1), kinds & stock)
+        g.new_game(first + 1, 1)
+        found = [p for p in g.pickups if p.kind == "flinger"]
+        assert found, "slot 4 weapon not placed in episode %d" % (ep + 1)
+        g.px, g.py = found[0].x, found[0].y
+        step(2)
+        assert g.owned["flinger"] and any(WEAPON_NAMES[EP_WEAPONS[ep]["flinger"]] in m[0] for m in g.msgs), g.msgs
+    print("episode arsenals + rosters ok")
+
+    # ---- special monster behaviours
+    g.new_game(EPISODES[2][1], 1)
+    g.boss, g.enemies = None, []
+    ph = Enemy("phoenix", 22.5, 26.5)
+    g.enemies = [ph]
+    g.kills_total, k0 = 1, g.kills
+    g.hurt_enemy(ph, 9999)
+    assert not ph.alive and g.kills == k0, "phoenix died for good on the first try"
+    step(int(35 * 2.8))
+    assert ph.alive and ph.reborn and ph.hp == ph.max_hp, "phoenix did not rise again"
+    g.hurt_enemy(ph, 9999)
+    step(35 * 3)
+    assert not ph.alive and g.kills == k0 + 1, "phoenix came back twice"
+    wren = Enemy("wren", g.px + 0.9, g.py)
+    g.enemies = [wren]
+    g.health, g.armor, g.invuln = 100, 0, 0
+    g.wake(wren)
+    for _ in range(35 * 3):
+        step(1)
+        if not wren.alive:
+            break
+    assert not wren.alive and g.health < 100, ("cinder wren did not blow up on you", wren.alive, g.health)
+    g.new_game(EPISODES[1][1], 1)
+    g.boss, g.health, g.invuln = None, 200, 99
+    kf = Enemy("kingfisher", g.px, g.py - 2.5)
+    g.enemies = [kf]
+    g.wake(kf)
+    d0 = math.hypot(kf.x - g.px, kf.y - g.py)
+    step(35 * 3)
+    assert math.hypot(kf.x - g.px, kf.y - g.py) > d0 + 0.5, "kingfisher did not keep its distance"
+    print("phoenix rebirth, wren blast, kingfisher kiting ok")
 
     # ---- combat vs each enemy type
-    for kind in ("quackling", "mallard", "fireswan", "pelican", "gosling", "heron", "brute", "cormorant", "owl"):
+    for kind in ("quackling", "mallard", "fireswan", "pelican", "gosling", "heron", "brute", "cormorant", "owl",
+                 "coot", "gull", "swanknight", "grebe", "kingfisher", "vulture", "raven", "crow"):
         g.new_game(5, 1)
         g.boss = None
         e = Enemy(kind, 22.5, 26.5)
@@ -3108,13 +3435,15 @@ def selftest(out):
         g.new_game(last, 1)
         boss = g.boss
         assert boss is not None and boss.st.get("title"), ("no boss on", LEVEL_NAMES[last])
-        g.owned["megahonk"] = True
-        g.weapon = "megahonk"
+        for w in WEAPON_ORDER:
+            g.owned[w] = True
+        g.weapon = "bazooka" if ep == 2 else "megahonk"     # comet caller for the Gander, the slot-6 gun otherwise
         g.health = 200
         g.invuln = 999
         g.px, g.py = 22.5, 26.5
         for _ in range(35 * 90):
             g.ammo["corn"] = 300
+            g.ammo["baguettes"] = 50
             g.invuln = 999
             g.ang = math.atan2(boss.y - g.py, boss.x - g.px)
             step(1, fire=True)
