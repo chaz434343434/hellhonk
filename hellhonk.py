@@ -20,6 +20,7 @@ import pygame
 from assets import VEST_COLORS, Assets
 from audio import SR, build_sfx, song_samples, to_sound
 from level import Level, MH, MW, NUM_LEVELS
+from pixelfont import GLYPHS, PixelFont, text_width
 from updater import Updater, cleanup_old
 from version import APP_VERSION
 
@@ -570,7 +571,7 @@ class Game:
         self.apply_display()
         pygame.display.set_caption("HONK")
         self.textq = []              # text is drawn last, at full output resolution, so it stays sharp
-        self.hifonts = {}
+        self.pfont = PixelFont()     # HONK's own pixel font
         self.screen = pygame.Surface((SW, SH))
         self.view = pygame.Surface((VW, VH))
         self.clock = pygame.time.Clock()
@@ -590,7 +591,8 @@ class Game:
         self.font_small = pygame.font.Font(None, 12)
         self.font_mid = pygame.font.Font(None, 20)
         self.font_title = pygame.font.Font(None, 64)
-        self.fsize = {self.font_big: 26, self.font: 14, self.font_small: 12, self.font_mid: 20}
+        self.font_tiny = pygame.font.Font(None, 10)
+        self.fsize = {self.font_big: 26, self.font: 14, self.font_small: 12, self.font_mid: 20, self.font_tiny: 9}
         self.bar_bg = self.make_bar()
         self.title_bg = self.make_title()
         self.mode = "title"
@@ -2167,7 +2169,7 @@ class Game:
                 continue
             top = hz + (self.eye - (0.12 if dead else 0.66)) * PROJ_V / depth - 9
             vest = VEST_COLORS[pid % len(VEST_COLORS)][1]
-            self.text_c_at(self.view, name, sx, max(0, top), vest, self.font_small)
+            self.text_c_at(self.view, name, sx, max(4 + 8 * len(others), top), vest, self.font_small)
 
     def mate_status(self):
         """[(pid, health, dead, name)] for every other player, host or client side."""
@@ -2221,7 +2223,7 @@ class Game:
         if self.boots > 0:
             pw.append(("BOOTS %d" % math.ceil(self.boots), (120, 255, 120)))
         for i, (t, c) in enumerate(pw):
-            self.text_r(self.view, t, VW - 3, 2 + i * 10, c)
+            self.text_r(self.view, t, VW - 3, 2 + i * 8, c, self.font_small)
         if self.boss_frac is not None:
             r = pygame.Rect(60, VH - 14, 200, 7)
             pygame.draw.rect(self.view, (30, 0, 0), r)
@@ -2334,7 +2336,7 @@ class Game:
                 pygame.draw.rect(s, (40, 30, 20), r, 1)
         for i, (k, lab) in enumerate(AMMO_LABEL):
             c = (255, 240, 200) if w["ammo"] == k else (225, 200, 140)
-            self.text(s, "%s %3d/%d" % (lab, self.ammo[k], MAXAMMO[k]), 254, VH + 2 + i * 7, c, self.font_small)
+            self.text(s, "%s %3d/%d" % (lab, self.ammo[k], MAXAMMO[k]), 254, VH + 2 + i * 7, c, self.font_tiny)
 
     # ---- text: queued in low-res coordinates, rendered sharp at output resolution in compose()
     def begin_frame(self):
@@ -2354,12 +2356,6 @@ class Game:
 
     def text_c(self, surf, t, y, c, font=None):
         self.text(surf, t, SW / 2, y, c, font, "c")
-
-    def hifont(self, px):
-        f = self.hifonts.get(px)
-        if f is None:
-            f = self.hifonts[px] = pygame.font.Font(None, px)
-        return f
 
     def apply_display(self):
         if self.fullscreen:
@@ -2386,20 +2382,22 @@ class Game:
         dst.fill((0, 0, 0))
         dst.blit(pygame.transform.scale(self.screen, (ow, oh)), (ox, oy))
         sx, sy = ow / SW, oh / SH
-        shadow = max(1, int(round(sy * 0.45)))
         for t, x, y, c, size, align in self.textq:
             if not t:
                 continue
-            f = self.hifont(max(8, int(round(size * sy * 0.85))))
-            img = f.render(t, True, c)
-            sh = f.render(t, True, (0, 0, 0))
+            # whole-number pixel size so every font pixel is identical (crisp, never smeared)
+            unit = max(1, int(round(0.5 * size * sy / 7)))
             X = ox + x * sx
+            room = {"l": ox + ow - X, "c": ow, "r": X - ox}[align] - 4
+            while unit > 1 and text_width(t, unit) > room:
+                unit -= 1
+            img = self.pfont.render(t, tuple(c), unit, (0, 0, 0))
+            w = img.get_width() - unit - unit // 3
             if align == "c":
-                X -= img.get_width() / 2
+                X -= w / 2
             elif align == "r":
-                X -= img.get_width()
-            Y = oy + y * sy
-            dst.blit(sh, (int(X) + shadow, int(Y) + shadow))
+                X -= w
+            Y = oy + y * sy + max(0, (size * sy * 0.85 - 9 * unit) * 0.35)
             dst.blit(img, (int(X), int(Y)))
 
     def menu_items(self):
@@ -2453,7 +2451,7 @@ class Game:
             self.text_c(s, "WASD move  MOUSE turn  CLICK fire  E use", SH - 22, (230, 210, 190))
             self.text_c(s, "1-6 weapons  TAB map  SHIFT walk  M music", SH - 11, (230, 210, 190))
             ver = "v" + APP_VERSION
-            self.text_r(s, ver, SW - 3, SH - 9, (160, 140, 120), self.font_small)
+            self.text_r(s, ver, SW - 3, 2, (160, 140, 120), self.font_tiny)
             up = self.updater.status_line()
             if up:
                 self.text_c(s, up, 2, (140, 255, 170), self.font_small)
@@ -3251,7 +3249,10 @@ def selftest(out):
 
     # ---- sharp text + fullscreen layouts, gamer tag cleanup
     assert clean_name("  Two Finger Shot\x07  ") == "Two Finger Shot" and len(clean_name("x" * 40)) == NAME_MAX
+    import string
+    assert all(c in GLYPHS for c in string.printable if c not in "\t\n\r\x0b\x0c"), "font is missing characters"
     g.draw_play()
+    shot(g, "hud_640x480", (640, 480))
     shot(g, "hud_1080p_letterbox", (1920, 1080))
     shot(g, "hud_1440x900", (1440, 900))
     g.mode = "title"
